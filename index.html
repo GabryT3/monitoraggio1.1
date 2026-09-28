@@ -781,16 +781,38 @@ function toast(msg, tipo = 'ok') {
   toastTimer = setTimeout(() => t.classList.remove('show'), tipo === 'errore' ? 4200 : 2400);
 }
 
-function traduciErrore(err) {
-  const m = ((err && (err.code || '')) + ' ' + (err && err.message || '')).toLowerCase();
+function traduciErrore(err, { dettaglio = false } = {}) {
+  const codice = (err && err.code) || '';
+  const m = (codice + ' ' + ((err && err.message) || '')).toLowerCase();
+  // Problemi di configurazione di Supabase (li vede chi registra, ma li risolve l'amministratore)
+  if (m.includes('email_address_not_authorized') || m.includes('not authorized'))
+    return 'Il sito non può ancora inviare email a questo indirizzo. L\u2019amministratore deve configurare il servizio di invio email (SMTP) in Supabase: vedi il passo 5 del README.';
+  if (m.includes('error sending') || m.includes('smtp'))
+    return 'Account non creato: l\u2019invio dell\u2019email di conferma non è riuscito. L\u2019amministratore deve controllare le impostazioni SMTP in Supabase.';
+  if (m.includes('database error'))
+    return 'Account non creato per un errore del database. L\u2019amministratore deve rieseguire supabase/schema.sql e controllare i log di Supabase.';
+  if (m.includes('signup_disabled') || m.includes('signups not allowed'))
+    return 'Le registrazioni sono chiuse: l\u2019amministratore deve attivarle in Supabase (Authentication, impostazioni di accesso).';
+  if (m.includes('email_provider_disabled') || m.includes('email logins are disabled'))
+    return 'L\u2019accesso con email non è attivo: l\u2019amministratore deve abilitare il provider Email in Supabase.';
+  if (m.includes('invalid api key') || m.includes('no api key') || m.includes('apikey'))
+    return 'Il sito non è configurato correttamente: la chiave in config.js non è valida. Ricopiala da Supabase (chiave anon o publishable).';
+  if (m.includes('captcha'))
+    return 'Verifica anti-bot non superata: in Supabase è attiva la protezione CAPTCHA, che questo modulo non gestisce. Disattivala oppure chiedi di aggiungerla al sito.';
+  if (m.includes('email_address_invalid') || m.includes('is invalid') || m.includes('invalid format'))
+    return 'Questo indirizzo email non viene accettato. Controlla che sia scritto correttamente e usa l\u2019email aziendale.';
+  // Errori dell'utente
   if (m.includes('invalid login credentials') || m.includes('invalid_credentials')) return 'Email o password non corretti.';
   if (m.includes('email not confirmed') || m.includes('email_not_confirmed')) return 'Devi prima confermare l\u2019indirizzo email: apri il link che ti abbiamo inviato.';
-  if (m.includes('already registered') || m.includes('user_already_exists')) return 'Esiste già un account con questa email. Accedi oppure recupera la password.';
-  if (m.includes('rate limit') || m.includes('over_email_send_rate_limit') || m.includes('too many')) return 'Troppi tentativi in poco tempo. Riprova tra qualche minuto.';
-  if (m.includes('weak') || m.includes('password should')) return 'La password è troppo debole: usa almeno 8 caratteri con lettere e numeri.';
+  if (m.includes('already registered') || m.includes('user_already_exists') || m.includes('email_exists')) return 'Esiste già un account con questa email. Accedi oppure recupera la password.';
+  if (m.includes('rate limit') || m.includes('rate_limit') || m.includes('too many')) return 'Troppi tentativi in poco tempo (il servizio email di prova di Supabase ne consente pochissimi all\u2019ora). Riprova più tardi.';
+  if (m.includes('weak') || m.includes('password should') || m.includes('pwned')) return 'La password è troppo debole o troppo comune: usa almeno 8 caratteri con lettere e numeri.';
   if (m.includes('same_password') || m.includes('different from the old')) return 'La nuova password deve essere diversa da quella attuale.';
-  if (m.includes('failed to fetch') || m.includes('network')) return 'Connessione non riuscita. Controlla la rete e riprova.';
-  return 'Qualcosa non ha funzionato. Riprova tra poco.';
+  if (m.includes('failed to fetch') || m.includes('network') || m.includes('load failed')) return 'Connessione a Supabase non riuscita. Controlla la rete e l\u2019indirizzo SUPABASE_URL in config.js.';
+  const base = 'Qualcosa non ha funzionato. Riprova tra poco.';
+  if (!dettaglio || !err) return base;
+  const tecnico = [err.status, codice, err.message].filter(Boolean).join(' · ');
+  return tecnico ? `${base} Dettaglio tecnico: ${tecnico}` : base;
 }
 
 function occupato(btn, on, testo) {
@@ -945,7 +967,7 @@ $('form-reg').addEventListener('submit', async e => {
     options: { data: { azienda: az, settore, consenso: true }, emailRedirectTo: URL_RITORNO }
   });
   occupato(btn, false);
-  if (error) { mostraMsg(traduciErrore(error)); return; }
+  if (error) { console.error(error); mostraMsg(traduciErrore(error, { dettaglio: true })); return; }
   if (data.session) return; // conferma email disattivata: entra subito (gestito da onAuthStateChange)
   $('verify-email').textContent = em;
   setMode('verifica', { focus: false });
@@ -968,7 +990,8 @@ $('form-login').addEventListener('submit', async e => {
   const { error } = await sb.auth.signInWithPassword({ email: em, password: pw });
   occupato(btn, false);
   if (error) {
-    const msg = traduciErrore(error);
+    console.error(error);
+    const msg = traduciErrore(error, { dettaglio: true });
     if (/confermare/.test(msg)) { $('verify-email').textContent = em; setMode('verifica', { focus: false }); }
     mostraMsg(msg);
   }
@@ -983,7 +1006,7 @@ $('form-recupero').addEventListener('submit', async e => {
   occupato(btn, true, 'Invio…');
   const { error } = await sb.auth.resetPasswordForEmail(em, { redirectTo: URL_RITORNO });
   occupato(btn, false);
-  if (error && /troppi/i.test(traduciErrore(error))) { mostraMsg(traduciErrore(error)); return; }
+  if (error) { console.error(error); mostraMsg(traduciErrore(error, { dettaglio: true })); return; }
   // Messaggio identico in ogni caso, per non rivelare quali email sono registrate
   mostraMsg(`Se ${em} corrisponde a un account, riceverai a breve un link per scegliere una nuova password.`, 'info');
 });
@@ -996,7 +1019,7 @@ $('form-nuova').addEventListener('submit', async e => {
   occupato(btn, true, 'Salvataggio…');
   const { data, error } = await sb.auth.updateUser({ password: pw });
   occupato(btn, false);
-  if (error) { mostraMsg(traduciErrore(error)); return; }
+  if (error) { console.error(error); mostraMsg(traduciErrore(error, { dettaglio: true })); return; }
   inRecupero = false;
   toast('Password aggiornata');
   caricaPannello(data.user);
@@ -1008,7 +1031,7 @@ $('btn-rinvia').addEventListener('click', async e => {
   occupato(e.currentTarget, true, 'Invio…');
   const { error } = await sb.auth.resend({ type: 'signup', email: em, options: { emailRedirectTo: URL_RITORNO } });
   occupato(e.currentTarget, false);
-  if (error) mostraMsg(traduciErrore(error)); else mostraMsg('Email inviata di nuovo. Controlla anche nello spam.', 'info');
+  if (error) { console.error(error); mostraMsg(traduciErrore(error, { dettaglio: true })); } else mostraMsg('Email inviata di nuovo. Controlla anche nello spam.', 'info');
 });
 
 $('btn-esci').addEventListener('click', async () => {
