@@ -744,11 +744,26 @@
 /* =====================================================================
    Configurazione e collegamento a Supabase
    ===================================================================== */
+/* Riduce l'indirizzo inserito in config.js all'indirizzo del progetto (https://<ref>.supabase.co).
+   Corregge gli errori di copia più comuni: "/rest/v1/" in coda, link della dashboard, spazi, virgolette. */
+function normalizzaUrl(valore) {
+  let v = String(valore || '').trim().replace(/^['"\s]+|['"\s]+$/g, '');
+  if (!v) return '';
+  const dash = v.match(/supabase\.com\/dashboard\/project\/([a-z0-9]+)/i);
+  if (dash) return `https://${dash[1]}.supabase.co`;
+  if (/^[a-z0-9]{20}$/i.test(v)) return `https://${v}.supabase.co`;
+  if (!/^https?:\/\//i.test(v)) v = 'https://' + v;
+  try { return new URL(v).origin; } catch (e) { return v; }
+}
 const CFG = window.APP_CONFIG || {};
-const configMancante = !CFG.SUPABASE_URL || !CFG.SUPABASE_ANON_KEY;
+const SUPA_URL = normalizzaUrl(CFG.SUPABASE_URL);
+const SUPA_KEY = String(CFG.SUPABASE_ANON_KEY || '').trim().replace(/^['"]+|['"]+$/g, '');
+if (CFG.SUPABASE_URL && SUPA_URL !== String(CFG.SUPABASE_URL).trim())
+  console.warn(`config.js: SUPABASE_URL corretto automaticamente da "${CFG.SUPABASE_URL}" a "${SUPA_URL}". Conviene aggiornare il file.`);
+const configMancante = !SUPA_URL || !SUPA_KEY;
 const libreriaMancante = !window.supabase || !window.supabase.createClient;
 const sb = (!configMancante && !libreriaMancante)
-  ? window.supabase.createClient(CFG.SUPABASE_URL, CFG.SUPABASE_ANON_KEY)
+  ? window.supabase.createClient(SUPA_URL, SUPA_KEY)
   : null;
 const URL_RITORNO = location.origin + location.pathname;
 
@@ -795,6 +810,8 @@ function traduciErrore(err, { dettaglio = false } = {}) {
     return 'Le registrazioni sono chiuse: l\u2019amministratore deve attivarle in Supabase (Authentication, impostazioni di accesso).';
   if (m.includes('email_provider_disabled') || m.includes('email logins are disabled'))
     return 'L\u2019accesso con email non è attivo: l\u2019amministratore deve abilitare il provider Email in Supabase.';
+  if (m.includes('invalid path specified') || (err && err.status === 404))
+    return 'Il sito non è configurato correttamente: in config.js SUPABASE_URL deve essere solo l\u2019indirizzo del progetto, del tipo https://abcdefghijkl.supabase.co, senza nulla dopo ".co".';
   if (m.includes('invalid api key') || m.includes('no api key') || m.includes('apikey'))
     return 'Il sito non è configurato correttamente: la chiave in config.js non è valida. Ricopiala da Supabase (chiave anon o publishable).';
   if (m.includes('captcha'))
