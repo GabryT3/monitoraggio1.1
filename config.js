@@ -10,6 +10,6 @@
  * NON inserire MAI qui la chiave "service_role" o "secret".
  */
 window.APP_CONFIG = {
-  SUPABASE_URL: 'https://hxmemnobljegxtubiwfh.supabase.co/rest/v1/',
+  SUPABASE_URL: 'https://hxmemnobljegxtubiwfh.supabase.co',
   SUPABASE_ANON_KEY: 'sb_publishable_o3Rps6BxQ79fhHVDnyutqQ_IlgCZmuZ'
 };
