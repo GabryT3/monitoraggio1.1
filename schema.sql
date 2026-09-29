@@ -251,3 +251,237 @@ revoke all on function public.aggiungi_fonte(text, text) from public, anon;
 revoke all on function public.stato_fonti(bigint[]) from public, anon;
 grant execute on function public.aggiungi_fonte(text, text) to authenticated;
 grant execute on function public.stato_fonti(bigint[]) to authenticated;
+
+
+-- ---------------------------------------------------------------------
+-- 6. PRESET PER SEZIONE MERCEOLOGICA
+--    Parole chiave e fonti proposte a ogni impresa in base alla sezione.
+--    Si applicano alla registrazione e quando l'impresa cambia sezione.
+--    Si possono modificare da Supabase → Table Editor → preset_settori
+--    (le righe già presenti non vengono sovrascritte rieseguendo questo file).
+-- ---------------------------------------------------------------------
+create table if not exists public.preset_settori (
+  settore        text primary key,
+  parole_chiave  text[] not null default '{}'::text[],
+  fonti          jsonb  not null default '[]'::jsonb   -- [{"nome": "...", "url": "https://..."}]
+);
+alter table public.preset_settori enable row level security;   -- lettura solo tramite le funzioni
+
+alter table public.fonti add column if not exists preimpostata boolean not null default false;
+
+insert into public.preset_settori (settore, parole_chiave, fonti) values
+  ('Acquedotti',
+   array['servizio idrico', 'depurazione', 'perdite idriche', 'acque reflue', 'ARERA', 'ZES unica'],
+   '[{"nome": "ARERA – Autorità di regolazione per energia, reti e ambiente", "url": "https://www.arera.it"},
+     {"nome": "Utilitalia", "url": "https://www.utilitalia.it"}]'),
+  ('Alimentari',
+   array['agroalimentare', 'filiera', 'sicurezza alimentare', 'etichettatura', 'vitivinicolo', 'ZES unica'],
+   '[{"nome": "Ministero dell''agricoltura (MASAF)", "url": "https://www.masaf.gov.it"},
+     {"nome": "ISMEA", "url": "https://www.ismea.it"}]'),
+  ('ANCE',
+   array['appalti', 'codice dei contratti', 'edilizia', 'cantieri', 'revisione prezzi', 'bonus edilizi'],
+   '[{"nome": "ANCE – Associazione nazionale costruttori edili", "url": "https://ance.it"},
+     {"nome": "ANAC – Autorità nazionale anticorruzione", "url": "https://www.anticorruzione.it"}]'),
+  ('Bancaria e Assicurativa',
+   array['Fondo di garanzia', 'accesso al credito', 'antiriciclaggio', 'assicurazioni', 'confidi', 'ZES unica'],
+   '[{"nome": "Banca d''Italia", "url": "https://www.bancaditalia.it"},
+     {"nome": "Fondo di garanzia per le PMI", "url": "https://www.fondidigaranzia.it"}]'),
+  ('Chimici e Chimico Farmaceutici',
+   array['REACH', 'farmaceutica', 'sostanze chimiche', 'emissioni industriali', 'AIFA', 'ZES unica'],
+   '[{"nome": "AIFA – Agenzia italiana del farmaco", "url": "https://www.aifa.gov.it"},
+     {"nome": "Federchimica", "url": "https://www.federchimica.it"}]'),
+  ('Consulenza',
+   array['voucher', 'consulenza', 'manager dell''innovazione', 'crisi d''impresa', 'formazione', 'ZES unica'],
+   '[{"nome": "Invitalia", "url": "https://www.invitalia.it"},
+     {"nome": "Ministero delle imprese e del made in Italy", "url": "https://www.mimit.gov.it"}]'),
+  ('Hi-Tech e ICT',
+   array['digitalizzazione', 'intelligenza artificiale', 'cybersicurezza', 'transizione 5.0', 'cloud', 'ZES unica'],
+   '[{"nome": "AgID – Agenzia per l''Italia digitale", "url": "https://www.agid.gov.it"},
+     {"nome": "Agenzia per la cybersicurezza nazionale", "url": "https://www.acn.gov.it"}]'),
+  ('Servizi Sanitari',
+   array['sanità', 'accreditamento', 'strutture sanitarie', 'telemedicina', 'dispositivi medici', 'ZES unica'],
+   '[{"nome": "Ministero della Salute", "url": "https://www.salute.gov.it"},
+     {"nome": "AGENAS – Agenzia nazionale per i servizi sanitari regionali", "url": "https://www.agenas.gov.it"}]'),
+  ('Terziario Innovativo',
+   array['startup', 'ricerca e sviluppo', 'brevetti', 'trasferimento tecnologico', 'Smart&Start', 'ZES unica'],
+   '[{"nome": "Invitalia", "url": "https://www.invitalia.it"},
+     {"nome": "Ministero delle imprese e del made in Italy", "url": "https://www.mimit.gov.it"}]'),
+  ('Trasporti e Concessionarie',
+   array['autotrasporto', 'logistica', 'veicoli', 'portuale', 'gasolio', 'ZES unica'],
+   '[{"nome": "Ministero delle infrastrutture e dei trasporti", "url": "https://www.mit.gov.it"},
+     {"nome": "Autorità di sistema portuale del Mare di Sicilia orientale", "url": "https://www.adspmaresiciliaorientale.it"}]'),
+  ('Turismo, Cultura ed Eventi',
+   array['turismo', 'strutture ricettive', 'spettacolo', 'eventi', 'fiere', 'ZES unica'],
+   '[{"nome": "Ministero del Turismo", "url": "https://www.ministeroturismo.gov.it"},
+     {"nome": "Ministero della Cultura", "url": "https://cultura.gov.it"}]'),
+  ('Varie',
+   array['credito d''imposta', 'transizione 5.0', 'internazionalizzazione', 'beni strumentali', 'Mezzogiorno', 'ZES unica'],
+   '[{"nome": "Ministero delle imprese e del made in Italy", "url": "https://www.mimit.gov.it"},
+     {"nome": "Invitalia", "url": "https://www.invitalia.it"}]')
+on conflict (settore) do nothing;
+
+-- Fonti di interesse locale proposte a tutte le sezioni
+create table if not exists public.preset_comuni (
+  id    int generated always as identity primary key,
+  nome  text not null,
+  url   text not null unique
+);
+alter table public.preset_comuni enable row level security;
+insert into public.preset_comuni (nome, url) values
+  ('Camera di Commercio del Sud Est Sicilia', 'https://www.ctrgsr.camcom.gov.it'),
+  ('IRFIS FinSicilia', 'https://www.irfis.it')
+on conflict (url) do nothing;
+
+
+-- Elenco delle fonti proposte per una sezione (comuni + specifiche), senza doppioni
+create or replace function public.elenco_fonti_preset(p_settore text)
+returns table (nome text, url text)
+language sql
+stable
+security definer
+set search_path = ''
+as $$
+  select distinct on (x.url) x.nome, x.url
+  from (
+    select c.nome, regexp_replace(btrim(c.url), '/+$', '') as url, 1 as ordine from public.preset_comuni c
+    union all
+    select left(e ->> 'nome', 120), regexp_replace(btrim(e ->> 'url'), '/+$', ''), 0
+    from public.preset_settori p, jsonb_array_elements(p.fonti) e
+    where p.settore = p_settore
+  ) x
+  where x.url ~* '^https?://'
+  order by x.url, x.ordine;
+$$;
+
+-- Inserisce nel catalogo le fonti proposte per la sezione e le restituisce pronte per il profilo
+create or replace function public.fonti_preset(p_settore text)
+returns jsonb
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  r     record;
+  v_id  bigint;
+  v_out jsonb := '[]'::jsonb;
+begin
+  for r in select * from public.elenco_fonti_preset(p_settore) loop
+    insert into public.fonti as f (url, nome, preimpostata)
+    values (r.url, r.nome, true)
+    on conflict (url) do update set preimpostata = true
+    returning f.id into v_id;
+    v_out := v_out || jsonb_build_array(jsonb_build_object(
+      'nome', left(r.nome, 80), 'url', r.url, 'fonte_id', v_id, 'attiva', true));
+  end loop;
+  return v_out;
+end;
+$$;
+
+-- Tutte le fonti proposte nel catalogo, così il monitoraggio le controlla già prima delle registrazioni
+create or replace function public.sincronizza_fonti_preset()
+returns integer
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  v_n integer;
+begin
+  insert into public.fonti as f (url, nome, preimpostata)
+  select distinct on (x.url) x.url, x.nome, true
+  from (
+    select regexp_replace(btrim(c.url), '/+$', '') as url, left(c.nome, 120) as nome from public.preset_comuni c
+    union all
+    select regexp_replace(btrim(e ->> 'url'), '/+$', ''), left(e ->> 'nome', 120)
+    from public.preset_settori p, jsonb_array_elements(p.fonti) e
+  ) x
+  where x.url ~* '^https?://'
+  on conflict (url) do update set preimpostata = true;
+  get diagnostics v_n = row_count;
+  return v_n;
+end;
+$$;
+
+-- Anteprima per il modulo di registrazione (nessuna scrittura; disponibile anche prima dell'accesso)
+create or replace function public.anteprima_settore(p_settore text)
+returns jsonb
+language sql
+stable
+security definer
+set search_path = ''
+as $$
+  select jsonb_build_object(
+    'parole_chiave', coalesce((select to_jsonb(p.parole_chiave) from public.preset_settori p where p.settore = p_settore), '[]'::jsonb),
+    'fonti', coalesce((select jsonb_agg(e.nome) from public.elenco_fonti_preset(p_settore) e), '[]'::jsonb));
+$$;
+
+-- Consigli per l'impresa che cambia sezione dal pannello
+create or replace function public.consigli_settore(p_settore text)
+returns jsonb
+language plpgsql
+security definer
+set search_path = ''
+as $$
+begin
+  if auth.uid() is null then
+    raise exception 'Accesso richiesto' using errcode = '42501';
+  end if;
+  return jsonb_build_object(
+    'parole_chiave', coalesce((select to_jsonb(p.parole_chiave) from public.preset_settori p where p.settore = p_settore), '[]'::jsonb),
+    'fonti', public.fonti_preset(p_settore));
+end;
+$$;
+
+revoke all on function public.elenco_fonti_preset(text) from public, anon, authenticated;
+revoke all on function public.fonti_preset(text) from public, anon, authenticated;
+revoke all on function public.sincronizza_fonti_preset() from public, anon, authenticated;
+revoke all on function public.anteprima_settore(text) from public;
+revoke all on function public.consigli_settore(text) from public, anon;
+grant execute on function public.sincronizza_fonti_preset() to service_role;
+grant execute on function public.anteprima_settore(text) to anon, authenticated;
+grant execute on function public.consigli_settore(text) to authenticated;
+
+
+-- Nuova versione della creazione del profilo: applica parole chiave e fonti della sezione.
+-- Se qualcosa va storto con i preset, il profilo viene comunque creato con le impostazioni di base.
+create or replace function public.crea_profilo_nuovo_utente()
+returns trigger
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  v_settore text := left(coalesce(nullif(new.raw_user_meta_data ->> 'settore', ''), 'Varie'), 80);
+  v_base    jsonb := '[{"nome": "Gazzetta Ufficiale", "attiva": true},
+                       {"nome": "incentivi.gov.it", "attiva": true},
+                       {"nome": "Bandi Regione Sicilia", "attiva": true},
+                       {"nome": "Circolari Confindustria Catania", "attiva": true}]'::jsonb;
+  v_parole  text[] := '{}'::text[];
+  v_fonti   jsonb := '[]'::jsonb;
+begin
+  begin
+    select coalesce(p.parole_chiave, '{}'::text[]) into v_parole
+    from public.preset_settori p where p.settore = v_settore;
+    v_parole := coalesce(v_parole, '{}'::text[]);
+    v_fonti := coalesce(public.fonti_preset(v_settore), '[]'::jsonb);
+  exception when others then
+    v_parole := '{}'::text[];
+    v_fonti := '[]'::jsonb;
+  end;
+
+  insert into public.profili (id, azienda, settore, consenso_privacy_at, parole_chiave, fonti)
+  values (
+    new.id,
+    left(coalesce(new.raw_user_meta_data ->> 'azienda', ''), 200),
+    v_settore,
+    case when (new.raw_user_meta_data ->> 'consenso') = 'true' then now() else null end,
+    v_parole[1:30],
+    v_base || v_fonti
+  )
+  on conflict (id) do nothing;
+  return new;
+end;
+$$;
+
+-- Porta subito nel catalogo le fonti proposte, così vengono controllate entro un'ora
+select public.sincronizza_fonti_preset();
