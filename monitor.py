@@ -36,10 +36,12 @@ import ipaddress
 import json
 import os
 import re
+import signal
 import socket
 import sys
 import time
 import zipfile
+from contextlib import contextmanager
 from datetime import date, datetime, timedelta
 from email.utils import parsedate_to_datetime
 from urllib.parse import urljoin, urlparse
@@ -51,8 +53,12 @@ from bs4 import BeautifulSoup
 
 ROMA = ZoneInfo("Europe/Rome")
 OGGI = datetime.now(ROMA).date()
-UA = "MonitoraggioBandi-ConfindustriaCatania/1.0 (servizio informativo per le imprese associate)"
-TIMEOUT = 60
+UA = ("Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Safari/537.36 "
+      "MonitoraggioBandi-ConfindustriaCatania/1.1")
+TIMEOUT = (15, 60)                                            # 15 s per collegarsi, 60 s tra un blocco di dati e l'altro
+LIMITE_FONTE = int(os.environ.get("LIMITE_FONTE", "360"))     # al massimo 6 minuti per ciascuna fonte
+LIMITE_SITO = int(os.environ.get("LIMITE_SITO", "60"))        # al massimo 1 minuto per ciascun sito aggiunto
+LIMITE_SITI_TOTALE = int(os.environ.get("LIMITE_SITI_TOTALE", "900"))   # 15 minuti per tutti i siti; il resto alla volta dopo
 
 FONTE_INCENTIVI = "incentivi.gov.it"
 FONTE_GU = "Gazzetta Ufficiale"
@@ -71,19 +77,57 @@ def log(msg: str) -> None:
     print(msg, flush=True)
 
 
-def scarica(url: str, tentativi: int = 3) -> requests.Response:
-    """GET con qualche nuovo tentativo in caso di errore temporaneo."""
+class TempoScaduto(BaseException):
+    """Una fonte ha superato il tempo massimo (BaseException: non viene intercettata per sbaglio da 'except Exception')."""
+
+
+@contextmanager
+def limite_tempo(secondi: int, cosa: str):
+    """Interrompe l'operazione se dura più di 'secondi' (solo dove il sistema lo consente, come su GitHub)."""
+    if secondi <= 0 or not hasattr(signal, "SIGALRM"):
+        yield
+        return
+
+    def scaduto(_segnale, _frame):
+        durata = f"{secondi // 60} minuti" if secondi >= 120 else f"{secondi} secondi"
+        raise TempoScaduto(f"{cosa}: nessuna risposta completa entro {durata}; "
+                           "il sito è lento o non risponde alle richieste automatiche")
+
+    precedente = signal.signal(signal.SIGALRM, scaduto)
+    signal.alarm(int(secondi))
+    try:
+        yield
+    finally:
+        signal.alarm(0)
+        signal.signal(signal.SIGALRM, precedente)
+
+
+class SitoIrraggiungibile(RuntimeError):
+    """Il server non risponde affatto (connessione rifiutata o scaduta)."""
+
+
+def scarica(url: str, tentativi: int = 2) -> requests.Response:
+    """GET con un nuovo tentativo in caso di errore temporaneo."""
     ultimo = None
     for i in range(tentativi):
         try:
-            r = requests.get(url, headers={"User-Agent": UA, "Accept-Language": "it-IT,it;q=0.9"}, timeout=TIMEOUT)
+            r = requests.get(url, timeout=TIMEOUT, headers={
+                "User-Agent": UA, "Accept-Language": "it-IT,it;q=0.9,en;q=0.5",
+                "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,application/json;q=0.9,*/*;q=0.8"})
             if r.status_code in (429, 500, 502, 503, 504):
                 raise requests.HTTPError(f"HTTP {r.status_code}")
             r.raise_for_status()
             return r
+        except (requests.ConnectionError, requests.Timeout) as e:
+            ultimo = e
+            if i + 1 < tentativi:
+                time.sleep(2)
         except Exception as e:  # noqa: BLE001
             ultimo = e
-            time.sleep(3 * (i + 1))
+            if i + 1 < tentativi:
+                time.sleep(2 * (i + 1))
+    if isinstance(ultimo, (requests.ConnectionError, requests.Timeout)):
+        raise SitoIrraggiungibile(f"{urlparse(url).netloc} non risponde ({type(ultimo).__name__})")
     raise RuntimeError(f"Download non riuscito: {url} ({ultimo})")
 
 
@@ -187,6 +231,7 @@ PAGINA_OPEN_DATA = "https://www.incentivi.gov.it/it/open-data"
 
 def trova_file_open_data() -> list[str]:
     candidati: list[str] = []
+    log("  leggo la pagina degli open data…")
     try:
         pagina = scarica(PAGINA_OPEN_DATA).text
         link = re.findall(r"""(?:href|src)=["']([^"']*open-data/[^"']+\.(?:json|zip|gz|csv))["']""", pagina, re.I)
@@ -194,10 +239,15 @@ def trova_file_open_data() -> list[str]:
         # preferenza: JSON, poi CSV compresso, poi CSV
         ordine = lambda u: (0 if u.lower().endswith(".json") else 1 if u.lower().endswith((".zip", ".gz")) else 2)
         candidati += sorted(dict.fromkeys(link), key=ordine)
+        log(f"  trovati {len(candidati)} file di dati nella pagina")
+    except SitoIrraggiungibile:
+        raise   # il sito non risponde: inutile provare altri indirizzi dello stesso sito
     except Exception as e:  # noqa: BLE001
-        log(f"  pagina open data non raggiungibile ({e}); provo gli indirizzi degli ultimi giorni")
+        log(f"  pagina open data non leggibile ({e}); provo gli indirizzi degli ultimi giorni")
+    if candidati:
+        return candidati
     # Ripiego: il file ha un nome con la data, es. 2025-4-5_opendata-export.csv
-    for i in range(0, 15):
+    for i in range(0, 8):
         d = OGGI - timedelta(days=i)
         for nome in (f"{d.year}-{d.month}-{d.day}_opendata-export", f"{d:%Y-%m-%d}_opendata-export"):
             for est in ("json", "csv"):
@@ -248,12 +298,18 @@ def fonte_incentivi() -> list[dict]:
     righe, usato = None, None
     for url in trova_file_open_data():
         try:
-            r = scarica(url, tentativi=1 if "_opendata-export" in url else 3)
+            log(f"  scarico {url.rsplit('/', 1)[-1]}…")
+            t0 = time.monotonic()
+            r = scarica(url, tentativi=1 if "_opendata-export" in url else 2)
+            log(f"  scaricati {len(r.content) / 1_048_576:.1f} MB in {time.monotonic() - t0:.0f} s, lettura dei dati…")
             righe = leggi_open_data(r.content, url)
             if righe:
                 usato = url
                 break
-        except Exception:  # noqa: BLE001
+        except SitoIrraggiungibile:
+            raise
+        except Exception as e:  # noqa: BLE001
+            log(f"    non utilizzabile: {str(e)[:120]}")
             continue
     if not righe:
         raise RuntimeError("nessun file open data valido trovato su incentivi.gov.it")
@@ -777,11 +833,11 @@ class Database:
 # ---------------------------------------------------------------------------
 # Esecuzione
 # ---------------------------------------------------------------------------
-FONTI = {
-    "incentivi": (FONTE_INCENTIVI, fonte_incentivi),
+FONTI = {   # prima le fonti più rapide, così un sito lento non blocca le altre
     "gu": (FONTE_GU, fonte_gu),
-    "regione": (FONTE_REGIONE, fonte_regione),
     "circolari": (FONTE_CIRCOLARI, fonte_circolari),
+    "regione": (FONTE_REGIONE, fonte_regione),
+    "incentivi": (FONTE_INCENTIVI, fonte_incentivi),
 }
 
 
@@ -831,8 +887,17 @@ def fonti_personali(db: "Database | None", solo_nuove: bool, prova: bool) -> tup
         log("  nessuna fonte aggiunta dalle imprese da controllare")
         return 0, 0, 0
     riuscite = totale = 0
-    for f in da_fare:
-        voci, stato = controlla_fonte(f)
+    inizio_siti = time.monotonic()
+    for n_fatti, f in enumerate(da_fare):
+        if time.monotonic() - inizio_siti > LIMITE_SITI_TOTALE:
+            log(f"  tempo a disposizione esaurito: {len(da_fare) - n_fatti} siti verranno controllati alla prossima esecuzione")
+            da_fare = da_fare[:n_fatti]
+            break
+        try:
+            with limite_tempo(LIMITE_SITO, f["nome"]):
+                voci, stato = controlla_fonte(f)
+        except TempoScaduto as e:
+            voci, stato = [], {"stato": "errore", "messaggio": f"Il sito non ha risposto in tempo ({str(e)[:120]})", "voci_trovate": 0}
         voci = list({v["id_esterno"]: v for v in voci}.values())
         log(f"  • {f['nome']} ({f['url']}): {stato['messaggio']}")
         if prova:
@@ -905,8 +970,10 @@ def main() -> int:
         nome, funzione = FONTI[chiave_fonte]
         n_fonti += 1
         log(f"\n▸ {nome}")
+        inizio = time.monotonic()
         try:
-            voci = funzione()
+            with limite_tempo(LIMITE_FONTE, nome):
+                voci = funzione()
             voci = list({v["id_esterno"]: v for v in voci}.values())
             if prova:
                 stampa_prova(voci)
@@ -922,11 +989,12 @@ def main() -> int:
                     except Exception as e:  # noqa: BLE001  (le novità sono comunque salvate)
                         msg += f" (aggiornamento degli incentivi chiusi non riuscito: {str(e)[:100]})"
                 log(msg)
+            log(f"  ({time.monotonic() - inizio:.0f} s)")
             riuscite += 1
             totale += len(voci)
             dettagli.append({"fonte": nome, "esito": "ok", "messaggio": f"{len(voci)} voci", "nuove": n, "aggiornate": a})
-        except Exception as e:  # noqa: BLE001
-            log(f"  ⚠ fonte non raccolta: {e}")
+        except (Exception, TempoScaduto) as e:  # noqa: BLE001
+            log(f"  ⚠ fonte non raccolta dopo {time.monotonic() - inizio:.0f} s: {e}")
             dettagli.append({"fonte": nome, "esito": "errore", "messaggio": str(e)[:200]})
     esito = "ok" if riuscite == n_fonti else "parziale" if riuscite else "errore"
     riepilogo = f"{riuscite}/{n_fonti} fonti raccolte, {totale} voci elaborate."
