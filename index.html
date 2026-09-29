@@ -223,6 +223,7 @@
   }
 
   .dash-grid { display: grid; grid-template-columns: minmax(0, 1fr) 320px; gap: 32px; align-items: start; }
+  .dash-grid > * { min-width: 0; }   /* le colonne non si allargano oltre lo schermo (i filtri scorrono di lato) */
 
   .feed-head { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 14px; }
   .feed-head h2 { font-size: 20px; margin: 0; }
@@ -242,6 +243,11 @@
   .badge { font-size: 13px; font-weight: 700; padding: 2px 10px; border-radius: 999px; }
   .badge.bando { background: var(--amber-bg); color: var(--amber); }
   .badge.normativa { background: var(--blue-tint); color: var(--blue); }
+  .badge.circolare { background: var(--green-bg); color: var(--green); }
+  .item.circolare::before { background: var(--green); opacity: 0.55; }
+  .feed-more { text-align: center; margin-top: 18px; }
+  .feed-more .btn { min-width: 200px; }
+  .feed-info { font-size: 14px; color: var(--muted); margin: 0 0 10px; }
   .new { color: var(--green); font-weight: 700; }
   .item h3 { font-size: 17.5px; line-height: 1.35; margin: 8px 0 6px; font-weight: 700; max-width: 60ch; }
   .item .why { margin: 0; font-size: 14.5px; color: var(--muted); }
@@ -283,6 +289,28 @@
   .sources { list-style: none; margin: 0 0 12px; padding: 0; }
   .sources li { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 8px 0; border-bottom: 1px solid var(--line); font-size: 15px; }
   .sources li:last-child { border-bottom: 0; }
+  .sources li { align-items: flex-start; }
+  .src-main { min-width: 0; display: flex; flex-direction: column; gap: 2px; padding-top: 2px; }
+  .src-main label { font-size: 15px; cursor: pointer; }
+  .src-url { font-size: 13px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 100%; text-decoration: none; }
+  .src-url:hover { text-decoration: underline; }
+  .src-stato { font-size: 13px; line-height: 1.35; display: flex; gap: 5px; align-items: flex-start; }
+  .src-stato::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: currentColor; margin-top: 6px; flex-shrink: 0; }
+  .src-stato.ok { color: var(--green); }
+  .src-stato.attesa { color: var(--amber); }
+  .src-stato.errore { color: var(--red); }
+  .src-azioni { display: flex; align-items: center; gap: 2px; flex-shrink: 0; }
+  .src-del { width: 40px; height: 40px; border: 0; background: none; color: var(--muted); border-radius: 50%; cursor: pointer; display: grid; place-items: center; }
+  .src-del:hover { background: var(--paper); color: var(--red); }
+  .src-del svg { width: 16px; height: 16px; }
+  .add-fonte { display: flex; flex-direction: column; gap: 8px; margin-top: 12px; padding-top: 14px; border-top: 1px solid var(--line); }
+  .add-fonte > label { font-size: 14.5px; font-weight: 700; }
+  .add-fonte .input { min-height: 44px; font-size: 15px; }
+  .add-fonte .helper { margin: 0; }
+  .add-fonte .field-error { margin: 0; }
+  .add-fonte .btn { align-self: flex-start; }
+  .tag-n { font-size: 12px; font-weight: 700; background: var(--bg); color: var(--blue); border-radius: 999px; padding: 0 7px; margin-left: 6px; line-height: 18px; }
+  .tag-n.zero { color: var(--muted); font-weight: 600; }
   .switch-input {
     appearance: none; -webkit-appearance: none; width: 44px; height: 26px; border-radius: 999px; background: var(--line);
     position: relative; cursor: pointer; flex-shrink: 0; transition: background 0.15s; margin: 0;
@@ -384,7 +412,7 @@
     .reg-form .hint { margin-bottom: 20px; }
     .chips { gap: 6px; }
     .chip span { min-height: 40px; padding: 0 12px; font-size: 14.5px; }
-    .input, .inline-add .input { font-size: 16px; } /* evita lo zoom automatico su iPhone */
+    .input, .inline-add .input, .add-fonte .input { font-size: 16px; } /* evita lo zoom automatico su iPhone */
 
     /* Pannello */
     .dash-top { margin-bottom: 18px; gap: 12px; }
@@ -676,34 +704,42 @@
             <button type="button" data-f="tutte" aria-pressed="true">Tutte<span class="n" id="n-tutte"></span></button>
             <button type="button" data-f="bando" aria-pressed="false">Bandi<span class="n" id="n-bando"></span></button>
             <button type="button" data-f="normativa" aria-pressed="false">Normative<span class="n" id="n-normativa"></span></button>
+            <button type="button" data-f="circolare" aria-pressed="false">Circolari<span class="n" id="n-circolare"></span></button>
             <button type="button" data-f="salvate" aria-pressed="false">Salvate<span class="n" id="n-salvate"></span></button>
           </div>
         </div>
-        <p class="sample-note" id="sample-note" hidden>Stai vedendo contenuti di esempio: verranno sostituiti dal monitoraggio reale.</p>
+        <p class="sample-note" id="sample-note" hidden>Stai vedendo contenuti di esempio: spariranno alla prima raccolta del monitoraggio automatico.</p>
+        <p class="feed-info" id="feed-info">Ultimi 30 giorni e bandi ancora aperti.</p>
         <ul class="feed" id="feed"></ul>
+        <div class="feed-more" id="feed-more"></div>
       </section>
 
       <aside class="settings" aria-label="Preferenze di monitoraggio">
         <details class="panel" data-pref>
           <summary><span><h3>Parole chiave seguite</h3><span class="status" id="kw-status"></span></span><svg class="i chev" aria-hidden="true"><use href="#i-chev"/></svg></summary>
-          <p class="sub">Ti segnaliamo ogni documento che le contiene.</p>
+          <p class="sub">Ti segnaliamo ogni novità che le contiene, anche fuori dalla tua sezione. Il numero indica quante ce ne sono ora.</p>
           <div class="tags" id="tags"></div>
           <div class="inline-add">
             <label for="new-tag" class="sr-only">Nuova parola chiave</label>
-            <input class="input" id="new-tag" type="text" maxlength="60" placeholder="Es. ZES unica" />
+            <input class="input" id="new-tag" type="text" maxlength="200" placeholder="Es. ZES unica, autotrasporto" aria-describedby="h-tag" />
             <button class="btn btn-ghost" id="add-tag" type="button">Aggiungi</button>
           </div>
+          <p class="helper" id="h-tag">Puoi inserirne più di una separandole con una virgola. Servono anche a raccogliere dalla Gazzetta Ufficiale gli atti che le contengono.</p>
         </details>
 
         <details class="panel" data-pref>
           <summary><span><h3>Fonti monitorate</h3><span class="status" id="fonti-count"></span></span><svg class="i chev" aria-hidden="true"><use href="#i-chev"/></svg></summary>
-          <p class="sub">Attiva o metti in pausa le fonti da controllare.</p>
+          <p class="sub">Attiva o metti in pausa le fonti. Puoi aggiungere altri siti: li controlliamo per te ogni giorno.</p>
           <ul class="sources" id="sources"></ul>
-          <div class="inline-add">
-            <label for="new-source" class="sr-only">Nuova fonte</label>
-            <input class="input" id="new-source" type="text" maxlength="200" placeholder="URL o nome della fonte" />
-            <button class="btn btn-ghost" id="add-source" type="button">Aggiungi</button>
-          </div>
+          <form class="add-fonte" id="form-fonte" novalidate>
+            <label for="new-source">Aggiungi un sito da monitorare</label>
+            <input class="input" id="new-source" type="url" inputmode="url" autocomplete="url" maxlength="500" placeholder="https://www.comune.catania.it/notizie" aria-describedby="h-source e-source" />
+            <label for="new-source-name" class="sr-only">Nome della fonte (facoltativo)</label>
+            <input class="input" id="new-source-name" type="text" maxlength="80" placeholder="Nome (facoltativo), es. Comune di Catania" />
+            <p class="helper" id="h-source">Indica la pagina delle notizie o dei bandi, oppure il feed RSS se il sito lo offre. Il primo controllo avviene entro un'ora.</p>
+            <p class="field-error" id="e-source"></p>
+            <button class="btn btn-ghost" type="submit">Aggiungi fonte</button>
+          </form>
         </details>
 
         <details class="panel" data-pref>
@@ -730,7 +766,8 @@
   <div class="bottom-inner">
     <svg class="footer-logo" viewBox="150 80 935 1290" role="img" aria-label="Confindustria Catania, 100 anni, 1926–2026" focusable="false"><use href="#logo-art"/></svg>
     <p><strong>Monitoraggio bandi e normative</strong>Un servizio di Confindustria Catania per le imprese associate.
-      <small><a href="privacy.html">Informativa privacy</a></small></p>
+      <small><a href="privacy.html">Informativa privacy</a></small>
+      <small>Fonti: Gazzetta Ufficiale della Repubblica Italiana; incentivi.gov.it (MIMIT), dati rilasciati con licenza IODL 2.0; EuroInfoSicilia, Regione Siciliana; circolari di Confindustria Catania. Verifica sempre requisiti e scadenze sul testo ufficiale.</small></p>
   </div>
 </footer>
 
@@ -777,6 +814,13 @@ let profilo = null;      // riga di public.profili
 let novita = [];         // righe di public.novita
 const salvate = new Set();
 let filtro = 'tutte';
+const GIORNI_FEED = 30;          // il feed mostra le novità degli ultimi 30 giorni…
+const GIORNI_CARICAMENTO = 60;   // …e si caricano 60 giorni per contare e cercare
+const PER_PAGINA = 30;
+let limiteFeed = PER_PAGINA;
+const FONTI_BASE = ['gazzetta ufficiale', 'incentivi.gov.it', 'bandi regione sicilia', 'circolari confindustria catania'];
+const statiFonti = new Map();   // fonte_id → stato del controllo (dalla funzione stato_fonti)
+let timerFonti = null;
 let inRecupero = false;  // arrivo dal link "password dimenticata"
 
 /* =====================================================================
@@ -818,6 +862,11 @@ function traduciErrore(err, { dettaglio = false } = {}) {
     return 'Verifica anti-bot non superata: in Supabase è attiva la protezione CAPTCHA, che questo modulo non gestisce. Disattivala oppure chiedi di aggiungerla al sito.';
   if (m.includes('email_address_invalid') || m.includes('is invalid') || m.includes('invalid format'))
     return 'Questo indirizzo email non viene accettato. Controlla che sia scritto correttamente e usa l\u2019email aziendale.';
+  // Fonti aggiunte dalle imprese
+  if (m.includes('fonte_url_non_valido')) return 'Indirizzo non valido. Scrivilo per intero, ad esempio https://www.comune.catania.it/notizie.';
+  if (m.includes('fonte_troppe')) return 'Hai aggiunto molte fonti oggi. Potrai aggiungerne altre domani.';
+  if (m.includes('pgrst202') || m.includes('could not find the function'))
+    return 'Il database non è aggiornato per le fonti personalizzate: l\u2019amministratore deve rieseguire supabase/schema.sql.';
   // Errori dell'utente
   if (m.includes('invalid login credentials') || m.includes('invalid_credentials')) return 'Email o password non corretti.';
   if (m.includes('email not confirmed') || m.includes('email_not_confirmed')) return 'Devi prima confermare l\u2019indirizzo email: apri il link che ti abbiamo inviato.';
@@ -869,6 +918,7 @@ function parseData(s) { if (!s) return null; const [y, m, d] = s.split('-').map(
 function giorniDa(s) { const d = parseData(s); return d ? Math.round((d - oggiMezzanotte()) / 86400000) : null; }
 const fmt = d => d.toLocaleDateString('it-IT', { day: 'numeric', month: 'short' });
 const fmtLungo = d => d.toLocaleDateString('it-IT', { weekday: 'long', day: 'numeric', month: 'long' });
+function isoData(d) { return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; }
 function traGiorni(n) { const d = oggiMezzanotte(); d.setDate(d.getDate() + n); return d; }
 
 /* =====================================================================
@@ -1079,42 +1129,74 @@ async function caricaPannello(user) {
     profilo.parole_chiave = profilo.parole_chiave || [];
     profilo.fonti = Array.isArray(profilo.fonti) ? profilo.fonti : [];
 
-    const [{ data: nv, error: e3 }, { data: sv, error: e4 }] = await Promise.all([
-      sb.from('novita').select('*').order('pubblicato_il', { ascending: false }).order('id', { ascending: false }).limit(200),
-      sb.from('salvati').select('novita_id')
-    ]);
-    if (e3) throw e3;
-    if (e4) throw e4;
-    novita = nv || [];
-    salvate.clear(); (sv || []).forEach(r => salvate.add(r.novita_id));
-
+    await caricaNovita();
+    limiteFeed = PER_PAGINA;
     renderPannello();
     mostra('dash');
+    aggiornaStatiFonti();
+    clearInterval(timerFonti);
+    timerFonti = setInterval(() => aggiornaStatiFonti({ soloSeInAttesa: true }), 3 * 60 * 1000);
   } catch (err) {
     console.error(err);
     $('loading-text').textContent = 'Non riusciamo a caricare i tuoi dati. ' + traduciErrore(err);
     $('loading-retry').hidden = false;
   }
 }
+
+/* Novità (ultimi 60 giorni + bandi aperti) e novità salvate */
+async function caricaNovita() {
+    const dal = isoData(traGiorni(-GIORNI_CARICAMENTO)), oggiIso = isoData(oggiMezzanotte());
+    const [{ data: nv, error: e3 }, { data: sv, error: e4 }] = await Promise.all([
+      sb.from('novita').select('*')
+        .or(`pubblicato_il.gte.${dal},scadenza.gte.${oggiIso}`)
+        .order('pubblicato_il', { ascending: false }).order('id', { ascending: false }).limit(1000),
+      sb.from('salvati').select('novita_id')
+    ]);
+    if (e3) throw e3;
+    if (e4) throw e4;
+    novita = nv || [];
+    salvate.clear(); (sv || []).forEach(r => salvate.add(r.novita_id));
+    // le novità salvate più vecchie restano consultabili nel filtro "Salvate"
+    const mancanti = [...salvate].filter(id => !novita.some(n => n.id === id));
+    if (mancanti.length) {
+      const { data: extra, error: e5 } = await sb.from('novita').select('*').in('id', mancanti.slice(0, 200));
+      if (e5) throw e5;
+      novita = novita.concat(extra || []);
+    }
+}
 $('btn-riprova').addEventListener('click', () => utente && caricaPannello(utente));
 
 /* =====================================================================
    Pannello: logica di pertinenza
    ===================================================================== */
-function fontiAttive() { return profilo.fonti.filter(f => f.attiva).map(f => f.nome.toLowerCase()); }
+/* Confronto senza accenti, maiuscole e differenze di apostrofo */
+function norm(t) {
+  return String(t || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[\u2018\u2019`\u00b4]/g, "'")
+    .toLowerCase().replace(/\s+/g, ' ').trim();
+}
+/* La fonte del profilo a cui appartiene una novità (per indirizzo se aggiunta dall'impresa, per nome se fissa) */
+function fonteDelProfilo(n) {
+  if (n.fonte_id) return profilo.fonti.find(f => Number(f.fonte_id) === Number(n.fonte_id));
+  return profilo.fonti.find(f => !f.fonte_id && norm(f.nome) === norm(n.fonte));
+}
+function paroleIn(n) {
+  const testo = norm(n.titolo + ' ' + (n.sommario || ''));
+  return profilo.parole_chiave.filter(k => norm(k) && testo.includes(norm(k)));
+}
 
 /* Restituisce il motivo della segnalazione, oppure null se la novità non è pertinente */
 function motivo(n) {
-  const attive = fontiAttive();
-  if (!attive.includes(String(n.fonte).toLowerCase())) return null;
-  const testo = (n.titolo + ' ' + (n.sommario || '')).toLowerCase();
-  const kw = profilo.parole_chiave.find(k => testo.includes(k.toLowerCase()));
+  const fonte = fonteDelProfilo(n);
+  if (!fonte || !fonte.attiva) return null;
+  const kw = paroleIn(n)[0];
   if (kw) return { tipo: 'parola', valore: kw };
+  if (n.solo_parole) return null;   // raccolta per le parole chiave di altre imprese
   const settori = n.settori || [];
   if (settori.includes(profilo.settore)) return { tipo: 'settore', valore: profilo.settore };
-  if (!settori.length) return { tipo: 'fonte', valore: n.fonte };
+  if (!settori.length) return { tipo: 'fonte', valore: fonte.nome };
   return null;
 }
+function etichettaFonte(n) { const f = fonteDelProfilo(n); return f ? f.nome : n.fonte; }
 function pertinenti() { return novita.map(n => ({ ...n, perche: motivo(n) })).filter(n => n.perche); }
 
 /* =====================================================================
@@ -1180,21 +1262,35 @@ function renderScadenze(lista) {
     </li>`).join('');
 }
 
+const TIPI = { bando: 'Bando', normativa: 'Normativa', circolare: 'Circolare' };
+function nelFeed(n) {
+  const g = giorniDa(n.pubblicato_il);
+  return (g !== null && g >= -GIORNI_FEED) || (n.tipo === 'bando' && n.scadenza && giorniDa(n.scadenza) >= 0);
+}
+
 function renderFeed(lista = pertinenti()) {
   const feed = $('feed');
-  const items = lista.filter(n => filtro === 'tutte' || (filtro === 'salvate' ? salvate.has(n.id) : n.tipo === filtro));
-  $('n-tutte').textContent = lista.length;
-  $('n-bando').textContent = lista.filter(n => n.tipo === 'bando').length;
-  $('n-normativa').textContent = lista.filter(n => n.tipo === 'normativa').length;
+  const recenti = lista.filter(nelFeed);
+  const perTipo = t => recenti.filter(n => n.tipo === t).length;
+  $('n-tutte').textContent = recenti.length;
+  $('n-bando').textContent = perTipo('bando');
+  $('n-normativa').textContent = perTipo('normativa');
+  $('n-circolare').textContent = perTipo('circolare');
   $('n-salvate').textContent = lista.filter(n => salvate.has(n.id)).length;
+  const items = filtro === 'salvate' ? lista.filter(n => salvate.has(n.id))
+    : recenti.filter(n => filtro === 'tutte' || n.tipo === filtro);
+  $('feed-info').textContent = filtro === 'salvate' ? 'Le novità che hai salvato, anche meno recenti.'
+    : `Ultimi ${GIORNI_FEED} giorni e bandi ancora aperti.`;
+  $('feed-more').innerHTML = '';
   if (!items.length) {
     feed.innerHTML = `<li class="empty">${
-      filtro === 'salvate' ? 'Non hai ancora salvato nulla. Usa il pulsante Salva su un bando o una normativa per ritrovarlo qui.'
-      : !lista.length ? 'Nessuna novità per ora. Prova ad aggiungere parole chiave o ad attivare altre fonti.'
-      : 'Nessuna novità di questo tipo.'}</li>`;
+      filtro === 'salvate' ? 'Non hai ancora salvato nulla. Usa il pulsante Salva su una novità per ritrovarla qui.'
+      : !recenti.length ? 'Nessuna novità negli ultimi 30 giorni per le tue preferenze. Prova ad aggiungere parole chiave, ad attivare altre fonti o a cambiare sezione merceologica.'
+      : 'Nessuna novità di questo tipo negli ultimi 30 giorni.'}</li>`;
     return;
   }
-  feed.innerHTML = items.map(n => {
+  const visibili = items.slice(0, limiteFeed);
+  feed.innerHTML = visibili.map(n => {
     const g = giorniDa(n.pubblicato_il);
     const quando = g === 0 ? '<span class="new">Oggi</span>' : g === -1 ? 'Ieri' : esc(fmt(parseData(n.pubblicato_il)));
     const gs = n.scadenza ? giorniDa(n.scadenza) : null;
@@ -1206,10 +1302,13 @@ function renderFeed(lista = pertinenti()) {
       : `una fonte che segui: <b>${esc(n.perche.valore)}</b>`;
     const url = n.url && /^https?:\/\//i.test(n.url) ? n.url : '';
     const saved = salvate.has(n.id);
-    return `<li class="item ${n.tipo === 'bando' ? 'bando' : 'normativa'}">
+    const tipo = TIPI[n.tipo] ? n.tipo : 'normativa';
+    const etichettaLink = tipo === 'circolare' ? 'Leggi la circolare' : 'Leggi il testo';
+    const titoloLink = tipo === 'circolare' ? ' title="Il testo è riservato agli associati: accedi con le credenziali di Confindustria Catania"' : '';
+    return `<li class="item ${tipo}">
       <div class="item-top">
-        <span class="badge ${n.tipo === 'bando' ? 'bando' : 'normativa'}">${n.tipo === 'bando' ? 'Bando' : 'Normativa'}</span>
-        <span>${esc(n.fonte)}</span>
+        <span class="badge ${tipo}">${TIPI[tipo]}</span>
+        <span>${esc(etichettaFonte(n))}</span>
         <span>${quando}</span>
       </div>
       <h3>${esc(n.titolo)}</h3>
@@ -1218,16 +1317,30 @@ function renderFeed(lista = pertinenti()) {
       <div class="item-foot">
         ${scad}
         <span class="spacer"></span>
-        ${url ? `<a class="link" href="${esc(url)}" target="_blank" rel="noopener noreferrer"><svg class="i" aria-hidden="true"><use href="#i-doc"/></svg>Leggi il testo</a>` : ''}
+        ${url ? `<a class="link" href="${esc(url)}" target="_blank" rel="noopener noreferrer"${titoloLink}><svg class="i" aria-hidden="true"><use href="#i-doc"/></svg>${etichettaLink}</a>` : ''}
         <button type="button" class="save" data-id="${n.id}" aria-pressed="${saved}"><svg class="i" aria-hidden="true"><use href="#i-bookmark"/></svg><span class="lbl">${saved ? 'Salvato' : 'Salva'}</span></button>
       </div>
     </li>`;
   }).join('');
+  const resto = items.length - visibili.length;
+  if (resto > 0) {
+    $('feed-more').innerHTML = `<button type="button" class="btn btn-ghost" id="btn-altre">Mostra altre ${Math.min(resto, PER_PAGINA)} <span class="n">(${resto} in tutto)</span></button>`;
+  }
 }
+
+$('feed-more').addEventListener('click', e => {
+  if (!e.target.closest('#btn-altre')) return;
+  const primoNuovo = limiteFeed;
+  limiteFeed += PER_PAGINA;
+  renderFeed();
+  const li = $('feed').children[primoNuovo];
+  if (li) { li.setAttribute('tabindex', '-1'); li.focus({ preventScroll: false }); }
+});
 
 document.querySelector('.filters').addEventListener('click', e => {
   const b = e.target.closest('button'); if (!b) return;
   filtro = b.dataset.f;
+  limiteFeed = PER_PAGINA;
   document.querySelectorAll('.filters button').forEach(x => x.setAttribute('aria-pressed', x === b));
   renderFeed();
 });
@@ -1271,9 +1384,13 @@ async function salvaProfilo(patch, msgOk, focusId) {
 function renderTags() {
   const tags = profilo.parole_chiave;
   $('kw-status').textContent = !tags.length ? 'Nessuna parola chiave' : tags.length === 1 ? '1 parola chiave' : `${tags.length} parole chiave`;
-  $('tags').innerHTML = tags.length ? tags.map((t, i) =>
-    `<span class="tag">${esc(t)}<button type="button" data-i="${i}" aria-label="Rimuovi ${esc(t)}"><svg class="i" aria-hidden="true"><use href="#i-x"/></svg></button></span>`
-  ).join('') : '<span class="helper">Aggiungi termini come "credito d\u2019imposta" o "ZES unica".</span>';
+  // quante novità del feed contengono ciascuna parola (tra le fonti attive)
+  const inFeed = novita.filter(n => { const f = fonteDelProfilo(n); return f && f.attiva && nelFeed(n); });
+  $('tags').innerHTML = tags.length ? tags.map((t, i) => {
+    const k = norm(t);
+    const quante = inFeed.filter(n => norm(n.titolo + ' ' + (n.sommario || '')).includes(k)).length;
+    return `<span class="tag">${esc(t)}<span class="tag-n${quante ? '' : ' zero'}" title="${quante === 1 ? '1 novità contiene' : quante + ' novità contengono'} questa parola">${quante}</span><button type="button" data-i="${i}" aria-label="Rimuovi ${esc(t)}"><svg class="i" aria-hidden="true"><use href="#i-x"/></svg></button></span>`;
+  }).join('') : '<span class="helper">Aggiungi termini come "credito d\u2019imposta" o "ZES unica".</span>';
 }
 $('tags').addEventListener('click', e => {
   const b = e.target.closest('button'); if (!b) return;
@@ -1283,41 +1400,131 @@ $('tags').addEventListener('click', e => {
 });
 function addTag() {
   const inp = $('new-tag');
-  const v = inp.value.trim().replace(/\s+/g, ' ');
-  if (!v) { inp.focus(); return; }
-  if (profilo.parole_chiave.some(t => t.toLowerCase() === v.toLowerCase())) { toast(`Segui già "${v}"`); return; }
-  if (profilo.parole_chiave.length >= 30) { toast('Puoi seguire al massimo 30 parole chiave.', 'errore'); return; }
+  const proposte = inp.value.split(/[,;\n]/).map(v => v.trim().replace(/\s+/g, ' ')).filter(Boolean);
+  if (!proposte.length) { inp.focus(); return; }
+  const tags = [...profilo.parole_chiave];
+  const aggiunte = [], gia = [], corte = [];
+  for (const v of proposte) {
+    if (v.length < 3) { corte.push(v); continue; }
+    if (tags.some(t => norm(t) === norm(v))) { gia.push(v); continue; }
+    if (tags.length >= 30) break;
+    tags.push(v.slice(0, 60)); aggiunte.push(v.slice(0, 60));
+  }
+  if (!aggiunte.length) {
+    toast(corte.length ? 'Le parole chiave devono avere almeno 3 caratteri.' : gia.length ? `Segui già "${gia[0]}"` : 'Puoi seguire al massimo 30 parole chiave.', corte.length || !gia.length ? 'errore' : 'ok');
+    return;
+  }
   inp.value = '';
-  salvaProfilo({ parole_chiave: [...profilo.parole_chiave, v] }, `Ora segui "${v}"`, 'new-tag');
+  const msg = aggiunte.length === 1 ? `Ora segui "${aggiunte[0]}"` : `Ora segui ${aggiunte.length} nuove parole chiave`;
+  salvaProfilo({ parole_chiave: tags }, msg + (tags.length >= 30 && aggiunte.length < proposte.length ? ' (raggiunto il massimo di 30)' : ''), 'new-tag');
 }
 $('add-tag').addEventListener('click', addTag);
 $('new-tag').addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); addTag(); } });
 
 /* Fonti */
+function breveUrl(u) {
+  try { const x = new URL(u); const t = x.hostname.replace(/^www\./, '') + (x.pathname !== '/' ? x.pathname : ''); return t.length > 42 ? t.slice(0, 41) + '…' : t; }
+  catch (e) { return u; }
+}
+function quandoControllo(ts) {
+  if (!ts) return '';
+  const d = new Date(ts), g = Math.round((new Date(d).setHours(0, 0, 0, 0) - oggiMezzanotte()) / 86400000);
+  const ora = d.toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' });
+  return g === 0 ? `oggi alle ${ora}` : g === -1 ? `ieri alle ${ora}` : `il ${fmt(d)}`;
+}
+function statoFonte(f) {
+  if (!f.fonte_id) return { classe: 'errore', testo: 'Manca l\u2019indirizzo del sito: rimuovila e aggiungila di nuovo con l\u2019indirizzo.' };
+  const st = statiFonti.get(Number(f.fonte_id));
+  if (!st || st.stato === 'in_attesa') return { classe: 'attesa', testo: 'In attesa del primo controllo (entro un\u2019ora).' };
+  if (st.stato === 'ok' && st.voci_trovate > 0) {
+    const n = st.voci_trovate;
+    return { classe: 'ok', testo: `${st.tipo_rilevato === 'rss' ? 'Feed RSS' : 'Pagina del sito'} · controllata ${quandoControllo(st.ultimo_controllo)} · ${n} ${n === 1 ? 'voce' : 'voci'}` };
+  }
+  return { classe: st.stato === 'ok' ? 'attesa' : 'errore', testo: st.messaggio || 'Controllo non riuscito.' };
+}
 function renderFonti() {
   const fonti = profilo.fonti;
-  $('sources').innerHTML = fonti.map((f, i) =>
-    `<li><label for="src-${i}">${esc(f.nome)}</label><input class="switch-input" type="checkbox" role="switch" id="src-${i}" data-i="${i}" ${f.attiva ? 'checked' : ''}/></li>`
-  ).join('');
+  $('sources').innerHTML = fonti.map((f, i) => {
+    const personale = !!f.fonte_id || !FONTI_BASE.includes(norm(f.nome));
+    const st = personale ? statoFonte(f) : null;
+    return `<li>
+      <div class="src-main">
+        <label for="src-${i}">${esc(f.nome)}</label>
+        ${f.url ? `<a class="src-url" href="${esc(f.url)}" target="_blank" rel="noopener noreferrer">${esc(breveUrl(f.url))}</a>` : ''}
+        ${st ? `<span class="src-stato ${st.classe}">${esc(st.testo)}</span>` : ''}
+      </div>
+      <div class="src-azioni">
+        <input class="switch-input" type="checkbox" role="switch" id="src-${i}" data-i="${i}" ${f.attiva ? 'checked' : ''}/>
+        ${personale ? `<button type="button" class="src-del" data-del="${i}" aria-label="Rimuovi ${esc(f.nome)}"><svg class="i" aria-hidden="true"><use href="#i-x"/></svg></button>` : ''}
+      </div>
+    </li>`;
+  }).join('');
   const attive = fonti.filter(f => f.attiva).length;
   $('fonti-count').textContent = `${attive} ${attive === 1 ? 'fonte attiva' : 'fonti attive'} su ${fonti.length}`;
 }
 $('sources').addEventListener('change', e => {
+  if (!e.target.matches('.switch-input')) return;
   const i = Number(e.target.dataset.i);
   const fonti = profilo.fonti.map((f, j) => j === i ? { ...f, attiva: e.target.checked } : f);
   salvaProfilo({ fonti }, fonti[i].attiva ? `${fonti[i].nome} riattivata` : `${fonti[i].nome} in pausa`, 'src-' + i);
 });
-function addFonte() {
-  const inp = $('new-source');
-  const v = inp.value.trim();
-  if (!v) { inp.focus(); return; }
-  if (profilo.fonti.some(f => f.nome.toLowerCase() === v.toLowerCase())) { toast('Questa fonte è già nell\u2019elenco'); return; }
-  if (profilo.fonti.length >= 20) { toast('Puoi aggiungere al massimo 20 fonti.', 'errore'); return; }
-  inp.value = '';
-  salvaProfilo({ fonti: [...profilo.fonti, { nome: v, attiva: true }] }, `Fonte aggiunta: ${v}`, 'new-source');
+$('sources').addEventListener('click', e => {
+  const b = e.target.closest('.src-del'); if (!b) return;
+  const i = Number(b.dataset.del);
+  const rimossa = profilo.fonti[i];
+  const fonti = profilo.fonti.filter((_, j) => j !== i);
+  salvaProfilo({ fonti }, `${rimossa.nome} rimossa dalle tue fonti`, 'new-source');
+});
+
+$('form-fonte').addEventListener('submit', async e => {
+  e.preventDefault();
+  const inp = $('new-source'), nomeInp = $('new-source-name');
+  let v = inp.value.trim();
+  const nome = nomeInp.value.trim().replace(/\s+/g, ' ');
+  const errore = msg => { setErr('new-source', 'e-source', msg); inp.focus(); };
+  if (!v) return errore('Inserisci l\u2019indirizzo del sito da monitorare.');
+  if (!/^https?:\/\//i.test(v)) v = 'https://' + v;
+  let u;
+  try { u = new URL(v); } catch (err) { return errore('Indirizzo non valido. Esempio: https://www.comune.catania.it/notizie'); }
+  if (!/^https?:$/.test(u.protocol) || !/^[a-z0-9-]+(\.[a-z0-9-]+)+$/i.test(u.hostname)) return errore('Indirizzo non valido. Esempio: https://www.comune.catania.it/notizie');
+  if (profilo.fonti.length >= 20) return errore('Hai raggiunto il massimo di 20 fonti: rimuovine una per aggiungerne un\u2019altra.');
+  setErr('new-source', 'e-source', '');
+  const btn = e.submitter || $('form-fonte').querySelector('[type=submit]');
+  occupato(btn, true, 'Aggiunta…');
+  const { data, error } = await sb.rpc('aggiungi_fonte', { p_url: u.href, p_nome: nome || null });
+  occupato(btn, false);
+  if (error) { console.error(error); return errore(traduciErrore(error, { dettaglio: true })); }
+  const riga = Array.isArray(data) ? data[0] : data;
+  if (!riga) return errore('Non è stato possibile aggiungere la fonte. Riprova.');
+  if (profilo.fonti.some(f => Number(f.fonte_id) === Number(riga.id))) return errore('Segui già questa fonte.');
+  statiFonti.set(Number(riga.id), riga);
+  inp.value = ''; nomeInp.value = '';
+  const nuova = { nome: (nome || riga.nome).slice(0, 80), url: riga.url, fonte_id: Number(riga.id), attiva: true };
+  const salvata = await salvaProfilo({ fonti: [...profilo.fonti, nuova] },
+    riga.stato === 'in_attesa' ? `Fonte aggiunta: la controlliamo entro un\u2019ora` : `Fonte aggiunta: ${nuova.nome}`, 'new-source');
+  if (salvata && riga.stato === 'ok') { await caricaNovita(); renderPannello(); }
+});
+
+/* Stato dei controlli sulle fonti aggiunte; se una fonte è appena stata verificata, ricarica le novità */
+async function aggiornaStatiFonti({ soloSeInAttesa = false } = {}) {
+  if (!profilo || !sb) return;
+  const ids = profilo.fonti.filter(f => f.fonte_id).map(f => Number(f.fonte_id));
+  if (!ids.length) return;
+  const inAttesa = ids.filter(id => !statiFonti.has(id) || statiFonti.get(id).stato === 'in_attesa');
+  if (soloSeInAttesa && !inAttesa.length) return;
+  const { data, error } = await sb.rpc('stato_fonti', { p_ids: ids });
+  if (error) { console.warn('Stato delle fonti non disponibile', error); return; }
+  const appenaVerificate = (data || []).filter(r => inAttesa.includes(Number(r.id)) && r.stato !== 'in_attesa');
+  (data || []).forEach(r => statiFonti.set(Number(r.id), r));
+  if (appenaVerificate.length) {
+    try { await caricaNovita(); } catch (err) { console.warn(err); }
+    renderPannello();
+    const okN = appenaVerificate.filter(r => r.stato === 'ok' && r.voci_trovate > 0).length;
+    if (okN) toast(okN === 1 ? 'Una nuova fonte è stata verificata: trovi le sue novità nel feed' : `${okN} nuove fonti verificate`);
+  } else {
+    renderFonti();
+  }
 }
-$('add-source').addEventListener('click', addFonte);
-$('new-source').addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); addFonte(); } });
 
 /* Settore */
 function renderSettore() {
@@ -1372,6 +1579,7 @@ prefs.forEach(d => d.addEventListener('toggle', () => {
       }
       if (event === 'SIGNED_OUT') {
         utente = null; profilo = null; novita = []; salvate.clear(); filtro = 'tutte';
+        clearInterval(timerFonti); statiFonti.clear();
         mostra('auth'); setMode('accedi', { focus: false });
         return;
       }

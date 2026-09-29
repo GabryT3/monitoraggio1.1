@@ -1,0 +1,49 @@
+# Raccoglie ogni mattina bandi, normative e circolari e li carica nel database del sito.
+# Ogni ora controlla anche le fonti appena aggiunte dalle imprese dal pannello
+# (così una nuova fonte è verificata entro un'ora, non il giorno dopo).
+# Si può avviare anche a mano: scheda "Actions" → "Monitoraggio bandi e normative" → "Run workflow".
+name: Monitoraggio bandi e normative
+
+on:
+  schedule:
+    - cron: "30 4 * * *"   # raccolta completa: ogni giorno alle 4:30 UTC (6:30 con l'ora legale, 5:30 con l'ora solare)
+    - cron: "15 * * * *"   # controllo rapido delle sole fonti nuove, ogni ora
+  workflow_dispatch:
+    inputs:
+      prova:
+        description: "Modalità prova: mostra cosa verrebbe raccolto, senza scrivere nel database"
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: monitoraggio
+  cancel-in-progress: false
+
+jobs:
+  raccolta:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - name: Scarica il codice
+        uses: actions/checkout@v4
+
+      - name: Prepara Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: monitor/requirements.txt
+
+      - name: Installa le librerie
+        run: pip install -r monitor/requirements.txt
+
+      - name: Raccogli le novità
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+          PROVA: ${{ inputs.prova && '1' || '' }}
+          SOLO_NUOVE: ${{ github.event.schedule == '15 * * * *' && '1' || '' }}
+        run: python monitor/monitor.py
