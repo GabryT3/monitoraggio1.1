@@ -13,7 +13,7 @@ Fonti (i nomi coincidono con quelli delle fonti nel pannello del sito):
   - "Circolari Confindustria Catania"  elenco pubblico delle circolari
 
 Variabili d'ambiente:
-  SUPABASE_URL           indirizzo del progetto, es. https://abcd.supabase.co
+  SUPABASE_URL           https://hxmemnobljegxtubiwfh.supabase.co
   SUPABASE_SERVICE_KEY   chiave "service_role" o "secret" (MAI nel sito, solo nei secrets di GitHub)
   PROVA=1                raccoglie e mostra i risultati senza scrivere nel database
   FONTI=gu,incentivi     (facoltativo) esegue solo alcune fonti: incentivi, gu, regione, circolari, personali
