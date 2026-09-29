@@ -57,6 +57,9 @@ OGGI = datetime.now(ROMA).date()
 UA = ("Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Safari/537.36 "
       "MonitoraggioBandi-ConfindustriaCatania/1.1")
 TIMEOUT = (15, 60)                                            # 15 s per collegarsi, 60 s tra un blocco di dati e l'altro
+# Per Supabase NON va usato un User-Agent da browser: le chiavi segrete (sb_secret_…) vengono rifiutate
+# con HTTP 401 se la richiesta sembra arrivare da un browser.
+UA_SERVIZIO = "MonitoraggioBandi-ConfindustriaCatania/1.2 (python-requests; server)"
 LIMITE_FONTE = int(os.environ.get("LIMITE_FONTE", "360"))     # al massimo 6 minuti per ciascuna fonte
 LIMITE_SITO = int(os.environ.get("LIMITE_SITO", "60"))        # al massimo 1 minuto per ciascun sito aggiunto
 LIMITE_SITI_TOTALE = int(os.environ.get("LIMITE_SITI_TOTALE", "900"))   # 15 minuti per tutti i siti; il resto alla volta dopo
@@ -802,7 +805,7 @@ def spiega_chiave(chiave: str, url: str) -> str | None:
 class Database:
     def __init__(self, url: str, chiave: str):
         self.base = normalizza_url(url) + "/rest/v1"
-        self.h = {"apikey": chiave, "Content-Type": "application/json", "User-Agent": UA}
+        self.h = {"apikey": chiave, "Content-Type": "application/json", "User-Agent": UA_SERVIZIO}
         if chiave.startswith("eyJ"):  # chiave service_role in formato JWT (legacy)
             self.h["Authorization"] = f"Bearer {chiave}"
 
@@ -822,7 +825,10 @@ class Database:
         if r.status_code in (401, 403):
             testo = r.text.lower()
             info = descrivi_chiave(self.h.get("apikey", ""))
-            if "permission denied" in testo:
+            if "browser" in testo:
+                causa = ("Supabase ha scambiato il programma per un browser e ha bloccato la chiave segreta "
+                         "(intestazione User-Agent): aggiorna monitor.py all'ultima versione.")
+            elif "permission denied" in testo:
                 causa = ("la chiave è valida ma non ha i permessi per scrivere: probabilmente è la chiave pubblica "
                          "(anon/publishable) e non quella segreta.")
             else:
