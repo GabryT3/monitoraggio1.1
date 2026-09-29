@@ -118,6 +118,21 @@
   .preview.swap ul { animation: swap 0.28s ease-out; }
   @keyframes swap { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
 
+  .preset-box { border: 1px solid rgba(255,255,255,0.22); border-radius: 12px; padding: 14px 16px; }
+  .preset-box h3 { margin: 0 0 10px; font-size: 15px; font-weight: 700; color: #fff; }
+  .preset-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 10px; }
+  .preset-chips span { background: rgba(255,255,255,0.14); color: #fff; border-radius: 999px; padding: 3px 10px; font-size: 13.5px; font-weight: 600; }
+  .preset-fonti { margin: 0; font-size: 14px; color: var(--on-deep-muted); }
+  .benvenuto { display: flex; gap: 14px; align-items: flex-start; background: var(--blue-tint); border: 1px solid var(--blue-line); border-radius: 14px; padding: 18px 20px; margin-bottom: 24px; }
+  .benvenuto h2 { margin: 0 0 4px; font-size: 18px; color: var(--blue); }
+  .benvenuto p { margin: 0; font-size: 15px; }
+  .benvenuto > div { flex: 1; }
+  .btn-chiudi { width: 40px; height: 40px; border: 0; background: none; color: var(--muted); border-radius: 50%; cursor: pointer; display: grid; place-items: center; flex-shrink: 0; margin: -8px -8px 0 0; }
+  .btn-chiudi:hover { background: var(--bg); }
+  .consigli { margin-top: 14px; padding: 14px; border-radius: 10px; background: var(--paper); border: 1px solid var(--line); }
+  .consigli p { margin: 0 0 8px; font-size: 14.5px; }
+  .consigli .preset-chips span { background: var(--blue-tint); color: var(--blue); }
+  .consigli .azioni { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 10px; }
   .sources-note { display: flex; gap: 10px; font-size: 14.5px; color: var(--on-deep-muted); margin: 0; }
   .sources-note svg { margin-top: 3px; color: #fff; }
 
@@ -245,6 +260,8 @@
   .badge.normativa { background: var(--blue-tint); color: var(--blue); }
   .badge.circolare { background: var(--green-bg); color: var(--green); }
   .item.circolare::before { background: var(--green); opacity: 0.55; }
+  .badge.notizia { background: var(--paper); color: var(--muted); border: 1px solid var(--line); }
+  .item.notizia::before { background: var(--line); }
   .feed-more { text-align: center; margin-top: 18px; }
   .feed-more .btn { min-width: 200px; }
   .feed-info { font-size: 14px; color: var(--muted); margin: 0 0 10px; }
@@ -553,6 +570,12 @@
           <ul id="preview-list"></ul>
         </div>
 
+        <div class="preset-box" id="preset-box" hidden aria-live="polite">
+          <h3>Già impostati per la sezione <span id="preset-settore"></span></h3>
+          <div class="preset-chips" id="preset-parole"></div>
+          <p class="preset-fonti" id="preset-fonti"></p>
+        </div>
+
         <p class="sources-note">
           <svg class="i" aria-hidden="true"><use href="#i-radar"/></svg>
           <span>Controlliamo ogni giorno Gazzetta Ufficiale, incentivi.gov.it, Bandi Regione Sicilia e le circolari di Confindustria Catania.</span>
@@ -685,6 +708,14 @@
       <span class="digest-pill"><svg class="i" aria-hidden="true"><use href="#i-bell"/></svg><span id="digest-label"></span></span>
     </div>
 
+    <section class="benvenuto" id="benvenuto" hidden aria-labelledby="benv-titolo">
+      <div>
+        <h2 id="benv-titolo">Il tuo pannello è pronto</h2>
+        <p id="benv-testo"></p>
+      </div>
+      <button type="button" class="btn-chiudi" id="benv-chiudi" aria-label="Chiudi il messaggio di benvenuto"><svg class="i" aria-hidden="true"><use href="#i-x"/></svg></button>
+    </section>
+
     <section class="deadlines" aria-labelledby="dl-title">
       <div class="deadlines-head">
         <h2 id="dl-title">Prossime scadenze</h2>
@@ -709,7 +740,7 @@
           </div>
         </div>
         <p class="sample-note" id="sample-note" hidden>Stai vedendo contenuti di esempio: spariranno alla prima raccolta del monitoraggio automatico.</p>
-        <p class="feed-info" id="feed-info">Ultimi 30 giorni e bandi ancora aperti.</p>
+        <p class="feed-info" id="feed-info">Bandi ancora aperti e novità degli ultimi 30 giorni.</p>
         <ul class="feed" id="feed"></ul>
         <div class="feed-more" id="feed-more"></div>
       </section>
@@ -747,6 +778,7 @@
           <p class="sub">Determina quali bandi di settore ti segnaliamo.</p>
           <label for="p-settore" class="sr-only">Sezione merceologica</label>
           <select class="input select" id="p-settore"></select>
+          <div class="consigli" id="consigli" hidden aria-live="polite"></div>
         </details>
 
         <details class="panel" data-pref>
@@ -1003,8 +1035,27 @@ function renderPreview(nome) {
   const pv = $('preview');
   pv.classList.remove('swap'); void pv.offsetWidth; pv.classList.add('swap');
 }
-chipsEl.addEventListener('change', e => { if (e.target.name === 'settore') renderPreview(e.target.value); });
+chipsEl.addEventListener('change', e => { if (e.target.name === 'settore') { renderPreview(e.target.value); anteprimaPreset(e.target.value); } });
 renderPreview('Varie');
+
+/* Parole chiave e fonti che verranno impostate per la sezione scelta */
+let richiestaPreset = 0;
+async function anteprimaPreset(settore) {
+  const box = $('preset-box');
+  if (!sb) { box.hidden = true; return; }
+  const mia = ++richiestaPreset;
+  const { data, error } = await sb.rpc('anteprima_settore', { p_settore: settore });
+  if (mia !== richiestaPreset) return;   // è arrivata una risposta più recente
+  const parole = (data && data.parole_chiave) || [];
+  const fonti = (data && data.fonti) || [];
+  if (error || (!parole.length && !fonti.length)) { box.hidden = true; return; }
+  $('preset-settore').textContent = settore;
+  $('preset-parole').innerHTML = parole.map(p => `<span>${esc(p)}</span>`).join('');
+  $('preset-fonti').textContent = fonti.length
+    ? `Fonti: le 4 ufficiali più ${fonti.join(', ')}. Potrai cambiare tutto dopo la registrazione.`
+    : 'Potrai cambiare tutto dopo la registrazione.';
+  box.hidden = false;
+}
 
 /* =====================================================================
    Registrazione, accesso, recupero password
@@ -1220,6 +1271,7 @@ function renderPannello() {
 
   renderScadenze(lista);
   renderFeed(lista);
+  renderBenvenuto(lista);
   renderTags(); renderFonti(); renderSettore(); renderFrequenza();
 }
 
@@ -1262,8 +1314,9 @@ function renderScadenze(lista) {
     </li>`).join('');
 }
 
-const TIPI = { bando: 'Bando', normativa: 'Normativa', circolare: 'Circolare' };
+const TIPI = { bando: 'Bando', normativa: 'Normativa', circolare: 'Circolare', notizia: 'Notizia' };
 function nelFeed(n) {
+  if (n.tipo === 'bando' && n.scadenza && giorniDa(n.scadenza) < 0) return false;   // bandi scaduti: solo tra i salvati
   const g = giorniDa(n.pubblicato_il);
   return (g !== null && g >= -GIORNI_FEED) || (n.tipo === 'bando' && n.scadenza && giorniDa(n.scadenza) >= 0);
 }
@@ -1280,7 +1333,7 @@ function renderFeed(lista = pertinenti()) {
   const items = filtro === 'salvate' ? lista.filter(n => salvate.has(n.id))
     : recenti.filter(n => filtro === 'tutte' || n.tipo === filtro);
   $('feed-info').textContent = filtro === 'salvate' ? 'Le novità che hai salvato, anche meno recenti.'
-    : `Ultimi ${GIORNI_FEED} giorni e bandi ancora aperti.`;
+    : `Bandi ancora aperti e novità degli ultimi ${GIORNI_FEED} giorni.`;
   $('feed-more').innerHTML = '';
   if (!items.length) {
     feed.innerHTML = `<li class="empty">${
@@ -1361,6 +1414,34 @@ $('feed').addEventListener('click', async e => {
     return;
   }
   toast(era ? 'Rimosso dai salvati' : 'Salvato: lo trovi nel filtro "Salvate"');
+});
+
+/* Messaggio di benvenuto per le imprese appena registrate */
+function chiaveBenvenuto() { return 'benvenuto-visto:' + (utente ? utente.id : ''); }
+function renderBenvenuto(lista) {
+  const box = $('benvenuto');
+  let visto = false;
+  try { visto = localStorage.getItem(chiaveBenvenuto()) === '1'; } catch (e) { /* archivio non disponibile */ }
+  const creato = profilo.creato_il ? new Date(profilo.creato_il) : new Date();
+  const recente = (Date.now() - creato.getTime()) < 3 * 86400000;
+  if (visto || !recente) { box.hidden = true; return; }
+  const parole = profilo.parole_chiave.length;
+  const fontiSezione = profilo.fonti.filter(f => f.fonte_id).length;
+  const recenti = lista.filter(nelFeed);
+  const bandi = recenti.filter(n => n.tipo === 'bando').length;
+  const altre = recenti.length - bandi;
+  const impostati = parole || fontiSezione
+    ? `Per la sezione <b>${esc(profilo.settore)}</b> abbiamo già impostato ${parole} ${parole === 1 ? 'parola chiave' : 'parole chiave'} e ${fontiSezione} ${fontiSezione === 1 ? 'fonte' : 'fonti'} di settore, oltre alle 4 fonti ufficiali. `
+    : '';
+  const contenuti = recenti.length
+    ? `Qui sotto trovi <b>${bandi} ${bandi === 1 ? 'bando ancora aperto' : 'bandi ancora aperti'}</b> e <b>${altre} ${altre === 1 ? 'altra novità' : 'altre novità'}</b> (normative, circolari e notizie) degli ultimi 30 giorni, già filtrati per te. `
+    : 'Le prime novità per te arriveranno con il prossimo aggiornamento del monitoraggio. ';
+  $('benv-testo').innerHTML = impostati + contenuti + 'Puoi modificare parole chiave, fonti e sezione dalle preferenze.';
+  box.hidden = false;
+}
+$('benv-chiudi').addEventListener('click', () => {
+  try { localStorage.setItem(chiaveBenvenuto(), '1'); } catch (e) { /* archivio non disponibile */ }
+  $('benvenuto').hidden = true;
 });
 
 /* Salvataggio delle preferenze con ripristino in caso di errore */
@@ -1510,11 +1591,13 @@ async function aggiornaStatiFonti({ soloSeInAttesa = false } = {}) {
   if (!profilo || !sb) return;
   const ids = profilo.fonti.filter(f => f.fonte_id).map(f => Number(f.fonte_id));
   if (!ids.length) return;
-  const inAttesa = ids.filter(id => !statiFonti.has(id) || statiFonti.get(id).stato === 'in_attesa');
-  if (soloSeInAttesa && !inAttesa.length) return;
+  // "appena verificate" = fonti che l'impresa ha visto in attesa durante questa visita
+  const inAttesaPrima = ids.filter(id => statiFonti.has(id) && statiFonti.get(id).stato === 'in_attesa');
+  const sconosciute = ids.filter(id => !statiFonti.has(id));
+  if (soloSeInAttesa && !inAttesaPrima.length && !sconosciute.length) return;
   const { data, error } = await sb.rpc('stato_fonti', { p_ids: ids });
   if (error) { console.warn('Stato delle fonti non disponibile', error); return; }
-  const appenaVerificate = (data || []).filter(r => inAttesa.includes(Number(r.id)) && r.stato !== 'in_attesa');
+  const appenaVerificate = (data || []).filter(r => inAttesaPrima.includes(Number(r.id)) && r.stato !== 'in_attesa');
   (data || []).forEach(r => statiFonti.set(Number(r.id), r));
   if (appenaVerificate.length) {
     try { await caricaNovita(); } catch (err) { console.warn(err); }
@@ -1531,7 +1614,42 @@ function renderSettore() {
   $('p-settore').value = SETTORI.includes(profilo.settore) ? profilo.settore : 'Varie';
   $('settore-status').textContent = profilo.settore;
 }
-$('p-settore').addEventListener('change', e => salvaProfilo({ settore: e.target.value }, `Sezione aggiornata: ${e.target.value}`, 'p-settore'));
+$('p-settore').addEventListener('change', async e => {
+  const settore = e.target.value;
+  $('consigli').hidden = true;
+  const ok = await salvaProfilo({ settore }, `Sezione aggiornata: ${settore}`, 'p-settore');
+  if (ok) mostraConsigli(settore);
+});
+
+let consigliCorrenti = null;
+async function mostraConsigli(settore) {
+  const box = $('consigli');
+  const { data, error } = await sb.rpc('consigli_settore', { p_settore: settore });
+  if (error || !data) { box.hidden = true; if (error) console.warn(error); return; }
+  const parole = (data.parole_chiave || []).filter(k => !profilo.parole_chiave.some(t => norm(t) === norm(k)));
+  const fonti = (data.fonti || []).filter(f => !profilo.fonti.some(x => Number(x.fonte_id) === Number(f.fonte_id)));
+  if (!parole.length && !fonti.length) { box.hidden = true; return; }
+  consigliCorrenti = { parole, fonti };
+  box.innerHTML = `<p>Per la sezione <b>${esc(settore)}</b> ti consigliamo anche:</p>
+    ${parole.length ? `<div class="preset-chips">${parole.map(k => `<span>${esc(k)}</span>`).join('')}</div>` : ''}
+    ${fonti.length ? `<p>${fonti.length === 1 ? 'La fonte' : 'Le fonti'} ${esc(fonti.map(f => f.nome).join(', '))}.</p>` : ''}
+    <div class="azioni">
+      <button type="button" class="btn btn-ghost" id="consigli-si">Aggiungi i consigli</button>
+      <button type="button" class="text-btn" id="consigli-no">No, grazie</button>
+    </div>`;
+  box.hidden = false;
+}
+$('consigli').addEventListener('click', async e => {
+  if (e.target.closest('#consigli-no')) { $('consigli').hidden = true; consigliCorrenti = null; return; }
+  if (!e.target.closest('#consigli-si') || !consigliCorrenti) return;
+  const parole = [...profilo.parole_chiave, ...consigliCorrenti.parole].slice(0, 30);
+  const posti = Math.max(0, 20 - profilo.fonti.length);
+  const fonti = [...profilo.fonti, ...consigliCorrenti.fonti.slice(0, posti).map(f => ({ nome: f.nome, url: f.url, fonte_id: Number(f.fonte_id), attiva: true }))];
+  const aggiunte = (parole.length - profilo.parole_chiave.length) + (fonti.length - profilo.fonti.length);
+  $('consigli').hidden = true; consigliCorrenti = null;
+  const ok = await salvaProfilo({ parole_chiave: parole, fonti }, `Aggiunti ${aggiunte} consigli per la tua sezione`, 'p-settore');
+  if (ok) aggiornaStatiFonti();
+});
 
 /* Frequenza */
 function renderFrequenza() {
@@ -1568,6 +1686,8 @@ prefs.forEach(d => d.addEventListener('toggle', () => {
     mostra('auth'); setMode('registrati', { focus: false });
     return;
   }
+
+  anteprimaPreset((document.querySelector('input[name="settore"]:checked') || {}).value || 'Varie');
 
   sb.auth.onAuthStateChange((event, session) => {
     // Nessuna chiamata await qui dentro: si rimanda al ciclo successivo (raccomandazione di supabase-js)

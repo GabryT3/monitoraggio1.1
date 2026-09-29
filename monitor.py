@@ -706,6 +706,14 @@ class Database:
                 return righe
             inizio += passo
 
+    def sincronizza_preset(self) -> int:
+        """Porta nel catalogo le fonti proposte per le sezioni (funzione del database)."""
+        r = self._req("POST", "/rpc/sincronizza_fonti_preset", data=b"{}")
+        try:
+            return int(r.json())
+        except Exception:  # noqa: BLE001
+            return 0
+
     def aggiorna_fonte(self, fid: int, dati: dict) -> None:
         dati = {**dati, "ultimo_controllo": datetime.now(ROMA).isoformat()}
         self._req("PATCH", "/fonti", params={"id": f"eq.{fid}"},
@@ -758,14 +766,24 @@ def salva(db: "Database", nome: str, voci: list[dict]) -> str:
 
 
 def fonti_personali(db: "Database | None", solo_nuove: bool, prova: bool) -> tuple[int, int, int]:
-    """Controlla i siti aggiunti dalle imprese. Restituisce (controllate, riuscite, voci)."""
+    """Controlla i siti aggiunti dalle imprese e quelli proposti per le sezioni.
+    Restituisce (controllate, riuscite, voci)."""
     if db is None:
         elenco_fonti = [{"id": i + 1, "url": u, "nome": urlparse(u).hostname or u, "stato": "in_attesa"}
                         for i, u in enumerate(u.strip() for u in os.environ.get("URL_PROVA", "").split(",") if u.strip())]
         seguite = {f["id"] for f in elenco_fonti}
     else:
-        elenco_fonti = db.tutti("fonti", "id,url,nome,stato")
-        seguite = set()
+        if not solo_nuove:
+            try:
+                db.sincronizza_preset()
+            except Exception as e:  # noqa: BLE001
+                log(f"  fonti proposte per le sezioni non sincronizzate ({str(e)[:120]})")
+        try:
+            elenco_fonti = db.tutti("fonti", "id,url,nome,stato,preimpostata")
+        except Exception:  # noqa: BLE001  (database non ancora aggiornato con i preset)
+            elenco_fonti = db.tutti("fonti", "id,url,nome,stato")
+        # le fonti proposte per le sezioni si controllano sempre, così sono pronte per chi si registra
+        seguite = {f["id"] for f in elenco_fonti if f.get("preimpostata")}
         for p in db.tutti("profili", "id,fonti"):
             for f in p.get("fonti") or []:
                 if isinstance(f, dict) and f.get("fonte_id") and f.get("attiva", True):
