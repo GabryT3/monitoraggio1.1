@@ -2,6 +2,9 @@
 # Ogni ora controlla anche le fonti appena aggiunte dalle imprese dal pannello
 # (così una nuova fonte è verificata entro un'ora, non il giorno dopo).
 # Si può avviare anche a mano: scheda "Actions" → "Monitoraggio bandi e normative" → "Run workflow".
+#
+# Funziona sia con i file nella cartella monitor/ sia con monitor.py e requirements.txt
+# caricati direttamente nella cartella principale del repository.
 name: Monitoraggio bandi e normative
 
 on:
@@ -34,11 +37,16 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-          cache: pip
-          cache-dependency-path: monitor/requirements.txt
 
       - name: Installa le librerie
-        run: pip install -r monitor/requirements.txt
+        run: |
+          if [ -f monitor/requirements.txt ]; then
+            pip install -r monitor/requirements.txt
+          elif [ -f requirements.txt ]; then
+            pip install -r requirements.txt
+          else
+            pip install "requests>=2.31" "beautifulsoup4>=4.12"
+          fi
 
       - name: Raccogli le novità
         env:
@@ -46,4 +54,13 @@ jobs:
           SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
           PROVA: ${{ inputs.prova && '1' || '' }}
           SOLO_NUOVE: ${{ github.event.schedule == '15 * * * *' && '1' || '' }}
-        run: python monitor/monitor.py
+        run: |
+          if [ -f monitor/monitor.py ]; then
+            python monitor/monitor.py
+          elif [ -f monitor.py ]; then
+            python monitor.py
+          else
+            echo "ERRORE: nel repository non trovo monitor.py, né nella cartella monitor/ né nella cartella principale."
+            echo "Caricalo con Add file → Upload files e avvia di nuovo il workflow."
+            exit 1
+          fi
