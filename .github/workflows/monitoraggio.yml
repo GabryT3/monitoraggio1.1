@@ -28,7 +28,7 @@ concurrency:
 jobs:
   raccolta:
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    timeout-minutes: 45
     steps:
       - name: Scarica il codice
         uses: actions/checkout@v4
