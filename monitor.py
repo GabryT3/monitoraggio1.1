@@ -303,6 +303,7 @@ def fonte_incentivi() -> list[dict]:
             "tipo": "bando", "titolo": accorcia(titolo, 300), "sommario": accorcia(sommario, 400),
             "fonte": FONTE_INCENTIVI, "url": link, "pubblicato_il": iso(pubblicato),
             "scadenza": iso(chiusura), "settori": settori, "id_esterno": f"inc-{idx}",
+            "attivo": True,
         })
     return risultati
 
@@ -680,6 +681,43 @@ class Database:
             raise RuntimeError(f"Supabase {metodo} {percorso} → {r.status_code}: {r.text[:300]}")
         return r
 
+    def verifica(self) -> None:
+        """Controlla indirizzo, chiave e versione del database prima di iniziare."""
+        try:
+            r = requests.get(self.base + "/novita", headers=self.h, timeout=TIMEOUT,
+                             params={"select": "id,id_esterno,solo_parole,attivo,fonte_id", "limit": "1"})
+        except Exception as e:  # noqa: BLE001
+            raise SystemExit(f"ERRORE: Supabase non raggiungibile ({e}). Controlla il secret SUPABASE_URL.")
+        if r.status_code in (401, 403):
+            raise SystemExit("ERRORE: chiave non valida. Il secret SUPABASE_SERVICE_KEY deve contenere la chiave "
+                             "'secret' (sb_secret_…) o 'service_role' del progetto, non la chiave pubblica.")
+        if r.status_code == 404:
+            raise SystemExit("ERRORE: indirizzo non valido o tabella mancante. Controlla il secret SUPABASE_URL "
+                             "(solo https://…supabase.co) e che schema.sql sia stato eseguito.")
+        if r.status_code == 400 and "column" in r.text.lower():
+            raise SystemExit("ERRORE: il database non è aggiornato. In Supabase riesegui l'ultimo supabase/schema.sql "
+                             f"(dettaglio: {r.text[:200]})")
+        if r.status_code >= 400:
+            raise SystemExit(f"ERRORE: risposta inattesa da Supabase ({r.status_code}): {r.text[:200]}")
+
+    def disattiva_mancanti(self, fonte: str, presenti: list[str]) -> int:
+        """Segna come non più attivi i bandi della fonte che non compaiono più tra quelli aperti."""
+        if not presenti:
+            return 0   # fonte vuota o non letta: non si disattiva nulla per prudenza
+        elenco = ",".join('"' + x.replace('"', "") + '"' for x in presenti)
+        r = self._req("PATCH", "/novita", params={"fonte": f"eq.{fonte}", "tipo": "eq.bando", "attivo": "is.true",
+                                                  "id_esterno": f"not.in.({elenco})"},
+                      data=b'{"attivo": false}', headers={"Prefer": "return=representation", "Accept": "application/json"})
+        try:
+            return len(r.json())
+        except Exception:  # noqa: BLE001
+            return 0
+
+    def registra_esecuzione(self, tipo: str, esito: str, dettagli: list[dict], messaggio: str) -> None:
+        self._req("POST", "/esecuzioni", data=json.dumps({"tipo": tipo, "esito": esito, "dettagli": dettagli,
+                                                          "messaggio": messaggio}, ensure_ascii=False).encode("utf-8"),
+                  headers={"Prefer": "return=minimal"})
+
     def rimuovi_esempi(self) -> None:
         self._req("DELETE", "/novita?esempio=eq.true", headers={"Prefer": "return=minimal"})
 
@@ -726,7 +764,7 @@ class Database:
         colonne = ["tipo", "titolo", "sommario", "fonte", "url", "scadenza", "settori", "id_esterno"]
         if nuove:
             colonne.insert(5, "pubblicato_il")
-        for extra in ("fonte_id", "solo_parole"):
+        for extra in ("fonte_id", "solo_parole", "attivo"):
             if all(extra in v for v in voci):
                 colonne.append(extra)
         for i in range(0, len(voci), 200):
@@ -756,13 +794,13 @@ def stampa_prova(voci: list[dict]) -> None:
         log(f"    … e altre {len(voci) - 8}")
 
 
-def salva(db: "Database", nome: str, voci: list[dict]) -> str:
+def salva(db: "Database", nome: str, voci: list[dict]) -> tuple[int, int]:
     gia = db.esistenti(nome)
     nuove = [v for v in voci if v["id_esterno"] not in gia]
     vecchie = [v for v in voci if v["id_esterno"] in gia]
     db.scrivi(nuove, nuove=True)
     db.scrivi(vecchie, nuove=False)
-    return f"{len(nuove)} nuove, {len(vecchie)} aggiornate"
+    return len(nuove), len(vecchie)
 
 
 def fonti_personali(db: "Database | None", solo_nuove: bool, prova: bool) -> tuple[int, int, int]:
@@ -802,7 +840,8 @@ def fonti_personali(db: "Database | None", solo_nuove: bool, prova: bool) -> tup
         else:
             try:
                 if voci:
-                    log(f"    {salva(db, f['nome'], voci)}")
+                    n, a = salva(db, f["nome"], voci)
+                    log(f"    {n} nuove, {a} aggiornate")
                 db.aggiorna_fonte(f["id"], stato)
             except Exception as e:  # noqa: BLE001
                 log(f"    ⚠ salvataggio non riuscito: {e}")
@@ -825,8 +864,12 @@ def main() -> int:
             log("ERRORE: mancano SUPABASE_URL o SUPABASE_SERVICE_KEY (vanno nei secrets del repository).")
             return 2
         db = Database(url, chiave)
+        db.verifica()
         if not solo_nuove:
-            db.rimuovi_esempi()
+            try:
+                db.rimuovi_esempi()
+            except Exception as e:  # noqa: BLE001
+                log(f"Contenuti di esempio non rimossi ({str(e)[:120]})")
             try:
                 parole = [k for p in db.tutti("profili", "id,parole_chiave") for k in (p.get("parole_chiave") or [])]
                 imposta_parole_imprese(parole)
@@ -839,19 +882,25 @@ def main() -> int:
     titolo = "controllo delle nuove fonti" if solo_nuove else "monitoraggio"
     log(f"{titolo.capitalize()} del {OGGI:%d/%m/%Y}{' — MODALITÀ PROVA, nessuna scrittura' if prova else ''}")
     riuscite, totale, n_fonti = 0, 0, 0
+    dettagli: list[dict] = []
+    controllate_personali = 0
     for chiave_fonte in scelte:
         if chiave_fonte == "personali":
             log("\n▸ Fonti aggiunte dalle imprese")
             try:
                 controllate, ok, voci = fonti_personali(db, solo_nuove, prova)
+                controllate_personali += controllate
                 n_fonti += 1
                 riuscite += 1  # l'esito di ogni singola fonte è registrato nella tabella fonti
                 totale += voci
                 if controllate:
                     log(f"  {ok}/{controllate} fonti funzionanti")
+                dettagli.append({"fonte": "Fonti aggiunte e di settore", "esito": "ok",
+                                 "messaggio": f"{ok} su {controllate} siti letti correttamente", "nuove": voci})
             except Exception as e:  # noqa: BLE001
                 n_fonti += 1
                 log(f"  ⚠ controllo non riuscito: {e}")
+                dettagli.append({"fonte": "Fonti aggiunte e di settore", "esito": "errore", "messaggio": str(e)[:200]})
             continue
         nome, funzione = FONTI[chiave_fonte]
         n_fonti += 1
@@ -861,13 +910,32 @@ def main() -> int:
             voci = list({v["id_esterno"]: v for v in voci}.values())
             if prova:
                 stampa_prova(voci)
+                n = a = 0
             else:
-                log(f"  {salva(db, nome, voci)}")
+                n, a = salva(db, nome, voci)
+                msg = f"  {n} nuove, {a} aggiornate"
+                if chiave_fonte == "incentivi":
+                    try:
+                        chiusi = db.disattiva_mancanti(nome, [v["id_esterno"] for v in voci])
+                        if chiusi:
+                            msg += f", {chiusi} non più aperti"
+                    except Exception as e:  # noqa: BLE001  (le novità sono comunque salvate)
+                        msg += f" (aggiornamento degli incentivi chiusi non riuscito: {str(e)[:100]})"
+                log(msg)
             riuscite += 1
             totale += len(voci)
+            dettagli.append({"fonte": nome, "esito": "ok", "messaggio": f"{len(voci)} voci", "nuove": n, "aggiornate": a})
         except Exception as e:  # noqa: BLE001
             log(f"  ⚠ fonte non raccolta: {e}")
-    log(f"\nFatto: {riuscite}/{n_fonti} fonti raccolte, {totale} voci elaborate.")
+            dettagli.append({"fonte": nome, "esito": "errore", "messaggio": str(e)[:200]})
+    esito = "ok" if riuscite == n_fonti else "parziale" if riuscite else "errore"
+    riepilogo = f"{riuscite}/{n_fonti} fonti raccolte, {totale} voci elaborate."
+    log(f"\nFatto: {riepilogo}")
+    if db is not None and not prova and not (solo_nuove and not controllate_personali):
+        try:
+            db.registra_esecuzione("nuove_fonti" if solo_nuove else "completa", esito, dettagli, riepilogo)
+        except Exception as e:  # noqa: BLE001
+            log(f"(registro dell'esecuzione non salvato: {str(e)[:120]})")
     return 0 if riuscite else 1
 
 
