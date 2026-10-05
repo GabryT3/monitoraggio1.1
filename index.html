@@ -275,6 +275,15 @@
   .badge.notizia { background: var(--paper); color: var(--muted); border: 1px solid var(--line); }
   .item.notizia::before { background: var(--line); }
   .feed-more { text-align: center; margin-top: 18px; }
+  .digest-pill.spento { background: var(--paper); color: var(--muted); }
+  .email-riga { display: grid; grid-template-columns: minmax(0, 1fr) 44px; column-gap: 14px; align-items: start; margin-bottom: 12px; }
+  .email-riga label { font-size: 15px; line-height: 20px; padding-top: 3px; cursor: pointer; font-weight: 600; }
+  .email-riga small { display: block; font-weight: 400; color: var(--muted); font-size: 13.5px; margin-top: 2px; word-break: break-all; }
+  .email-info { font-size: 13.5px; color: var(--muted); margin: 10px 0 0; }
+  .segmented.disattivo { opacity: 0.5; pointer-events: none; }
+  .disiscrizione { max-width: 520px; margin: 40px auto; text-align: center; background: var(--paper); border: 1px solid var(--line); border-radius: 14px; padding: 32px 24px; }
+  .disiscrizione h1 { font-size: 22px; margin: 12px 0 8px; }
+  .disiscrizione p { color: var(--muted); margin: 0 0 16px; }
   .diagnosi { border: 1px solid var(--line); border-left: 4px solid var(--amber); border-radius: 10px; padding: 16px 18px; margin-top: 14px; background: var(--paper); }
   .diagnosi.grave { border-left-color: var(--red); }
   .diagnosi.info { border-left-color: var(--blue); }
@@ -576,6 +585,16 @@
     <p class="loading-retry" id="loading-retry" hidden><button class="btn btn-ghost" type="button" id="btn-riprova">Riprova</button></p>
   </section>
 
+  <!-- ===================== DISISCRIZIONE DALLE EMAIL ===================== -->
+  <section id="schermata-disiscrivi" class="screen" hidden aria-live="polite">
+    <div class="disiscrizione">
+      <span class="verify-icon" aria-hidden="true"><svg class="i"><use href="#i-mail"/></svg></span>
+      <h1 id="disiscrivi-titolo">Disiscrizione in corso…</h1>
+      <p id="disiscrivi-testo"></p>
+      <a class="btn btn-ghost" href="./" id="disiscrivi-vai">Vai al portale</a>
+    </div>
+  </section>
+
   <!-- ===================== ACCESSO / REGISTRAZIONE ===================== -->
   <section id="schermata-auth" class="screen" hidden aria-labelledby="reg-title">
     <div class="reg">
@@ -772,7 +791,7 @@
         <div id="diagnosi" hidden aria-live="polite"></div>
       </section>
 
-      <aside class="settings" aria-label="Preferenze di monitoraggio">
+      <aside class="settings" id="preferenze" aria-label="Preferenze di monitoraggio">
         <details class="panel" data-pref>
           <summary><span><h3>Parole chiave seguite</h3><span class="status" id="kw-status"></span></span><svg class="i chev" aria-hidden="true"><use href="#i-chev"/></svg></summary>
           <p class="sub">Ti segnaliamo ogni novità che le contiene, anche fuori dalla tua sezione. Il numero indica quante ce ne sono ora.</p>
@@ -815,12 +834,16 @@
         </details>
 
         <details class="panel" data-pref>
-          <summary><span><h3>Frequenza del digest</h3><span class="status" id="freq-status"></span></span><svg class="i chev" aria-hidden="true"><use href="#i-chev"/></svg></summary>
-          <p class="sub">Ricevi l'email alle 7:00.</p>
-          <div class="segmented" role="radiogroup" aria-label="Frequenza del digest">
+          <summary><span><h3>Email con le novità</h3><span class="status" id="freq-status"></span></span><svg class="i chev" aria-hidden="true"><use href="#i-chev"/></svg></summary>
+          <div class="email-riga">
+            <label for="digest-attivo">Ricevi le novità via email<small id="digest-indirizzo"></small></label>
+            <input class="switch-input" type="checkbox" role="switch" id="digest-attivo" />
+          </div>
+          <div class="segmented" id="freq-scelta" role="radiogroup" aria-label="Frequenza dell'email">
             <label><input type="radio" name="freq" value="giornaliera" /><span>Ogni giorno</span></label>
             <label><input type="radio" name="freq" value="settimanale" /><span>Ogni lunedì</span></label>
           </div>
+          <p class="email-info" id="email-info"></p>
         </details>
       </aside>
     </div>
@@ -886,6 +909,7 @@ let limiteFeed = PER_PAGINA;
 const FONTI_BASE = ['gazzetta ufficiale', 'incentivi.gov.it', 'bandi regione sicilia', 'circolari confindustria catania'];
 const statiFonti = new Map();   // fonte_id → stato del controllo (dalla funzione stato_fonti)
 let timerFonti = null;
+let vaiAPreferenze = false;   // arrivo dal link «Cambia preferenze» dell'email
 let inRecupero = false;  // arrivo dal link "password dimenticata"
 
 /* =====================================================================
@@ -992,7 +1016,7 @@ function traGiorni(n) { const d = oggiMezzanotte(); d.setDate(d.getDate() + n); 
    Navigazione tra schermate e modalità di accesso
    ===================================================================== */
 function mostra(nome) {
-  ['loading', 'auth', 'dash'].forEach(n => { $('schermata-' + n).hidden = n !== nome; });
+  ['loading', 'auth', 'dash', 'disiscrivi'].forEach(n => { $('schermata-' + n).hidden = n !== nome; });
   const dentro = nome === 'dash';
   $('nav-ospite').hidden = dentro || nome === 'loading';
   $('nav-utente').hidden = !dentro;
@@ -1258,6 +1282,13 @@ async function caricaPannello(user) {
     limiteFeed = PER_PAGINA;
     renderPannello();
     mostra('dash');
+    if (vaiAPreferenze) {
+      vaiAPreferenze = false;
+      const pannelloEmail = $('digest-attivo').closest('details');
+      pannelloEmail.open = true;
+      setTimeout(() => pannelloEmail.scrollIntoView({ block: 'start' }), 50);
+      history.replaceState(null, '', URL_RITORNO);
+    }
     aggiornaStatiFonti();
     clearInterval(timerFonti);
     timerFonti = setInterval(() => aggiornaStatiFonti({ soloSeInAttesa: true }), 3 * 60 * 1000);
@@ -1347,7 +1378,10 @@ function renderPannello() {
   $('nome-azienda').textContent = nome;
   $('header-azienda').textContent = nome;
   $('avatar').textContent = iniziali(profilo.azienda || utente.email);
-  $('digest-label').textContent = profilo.frequenza === 'settimanale' ? 'Digest ogni lunedì alle 7:00' : 'Digest ogni giorno alle 7:00';
+  const emailAttive = profilo.digest_attivo !== false;
+  $('digest-label').textContent = !emailAttive ? 'Email disattivate'
+    : profilo.frequenza === 'settimanale' ? 'Email ogni lunedì mattina' : 'Email ogni mattina';
+  $('digest-label').parentElement.classList.toggle('spento', !emailAttive);
 
   const lista = pertinenti();
   const diOggi = lista.filter(n => giorniDa(n.pubblicato_il) === 0).length;
@@ -1638,7 +1672,9 @@ function renderBenvenuto(lista) {
   const contenuti = recenti.length
     ? `Qui sotto trovi <b>${bandi} ${bandi === 1 ? 'bando ancora aperto' : 'bandi ancora aperti'}</b> e <b>${altre} ${altre === 1 ? 'altra novità' : 'altre novità'}</b> (normative, circolari e notizie) degli ultimi 30 giorni, già filtrati per te. `
     : 'Le prime novità per te arriveranno con il prossimo aggiornamento del monitoraggio. ';
-  $('benv-testo').innerHTML = impostati + contenuti + 'Puoi modificare parole chiave, fonti e sezione dalle preferenze.';
+  const email = profilo.digest_attivo !== false && utente && utente.email
+    ? `Riceverai queste novità anche via email all\u2019indirizzo <b>${esc(utente.email)}</b>: la prima entro un\u2019ora, poi ${profilo.frequenza === 'settimanale' ? 'ogni lunedì' : 'ogni mattina'}. ` : '';
+  $('benv-testo').innerHTML = impostati + contenuti + email + 'Puoi modificare parole chiave, fonti, sezioni ed email dalle preferenze.';
   box.hidden = false;
 }
 $('benv-chiudi').addEventListener('click', () => {
@@ -1869,14 +1905,27 @@ $('consigli').addEventListener('click', async e => {
   if (ok) aggiornaStatiFonti();
 });
 
-/* Frequenza */
+/* Email con le novità */
 function renderFrequenza() {
   const sett = profilo.frequenza === 'settimanale';
+  const attive = profilo.digest_attivo !== false;
   document.querySelector(`input[name="freq"][value="${sett ? 'settimanale' : 'giornaliera'}"]`).checked = true;
-  $('freq-status').textContent = sett ? 'Ogni lunedì alle 7:00' : 'Ogni giorno alle 7:00';
+  $('digest-attivo').checked = attive;
+  $('digest-indirizzo').textContent = utente && utente.email ? `all'indirizzo ${utente.email}` : '';
+  $('freq-scelta').classList.toggle('disattivo', !attive);
+  document.querySelectorAll('input[name="freq"]').forEach(r => { r.disabled = !attive; });
+  $('freq-status').textContent = !attive ? 'Disattivate' : sett ? 'Ogni lunedì mattina' : 'Ogni mattina';
+  const ultimo = profilo.ultimo_digest_il ? new Date(profilo.ultimo_digest_il) : null;
+  $('email-info').textContent = !attive
+    ? 'Non riceverai email: le novità restano comunque visibili qui nel portale.'
+    : ultimo ? `Le prossime email conterranno le novità pertinenti arrivate dopo ${quandoControllo(profilo.ultimo_digest_il)}, più i bandi in scadenza. Se non c'è nulla di nuovo l'email non parte.`
+    : 'La prima email con le novità per te arriverà entro un\u2019ora dalla registrazione, poi ' + (sett ? 'ogni lunedì mattina.' : 'ogni mattina.');
 }
+$('digest-attivo').addEventListener('change', e => {
+  salvaProfilo({ digest_attivo: e.target.checked }, e.target.checked ? 'Email con le novità attivate' : 'Email con le novità disattivate', 'digest-attivo');
+});
 document.querySelectorAll('input[name="freq"]').forEach(r => r.addEventListener('change', () => {
-  salvaProfilo({ frequenza: r.value }, r.value === 'giornaliera' ? 'Riceverai il digest ogni giorno' : 'Riceverai il digest ogni lunedì');
+  salvaProfilo({ frequenza: r.value }, r.value === 'giornaliera' ? 'Riceverai le novità ogni mattina' : 'Riceverai le novità ogni lunedì mattina');
 }));
 
 /* Sezioni delle preferenze: aperte su schermi larghi, una alla volta su telefono */
@@ -1890,6 +1939,28 @@ prefs.forEach(d => d.addEventListener('toggle', () => {
    Avvio
    ===================================================================== */
 (function avvio() {
+  // Link «Non ricevere più queste email» (funziona anche senza accesso)
+  const parametri = new URLSearchParams(location.search);
+  const token = parametri.get('disiscrivi');
+  if (token && sb) {
+    mostra('disiscrivi');
+    $('nav-ospite').hidden = true;
+    (async () => {
+      const valido = /^[0-9a-f-]{36}$/i.test(token);
+      const { data, error } = valido ? await sb.rpc('disiscrivi_digest', { p_token: token }) : { data: null, error: null };
+      history.replaceState(null, '', URL_RITORNO);
+      if (!error && data && data.ok) {
+        $('disiscrivi-titolo').textContent = 'Non riceverai più le email con le novità';
+        $('disiscrivi-testo').textContent = `${data.azienda ? 'Per ' + nomeBreve(data.azienda) + ' l' : 'L'}e email sono state disattivate. Bandi e normative restano consultabili nel portale; puoi riattivare le email in qualsiasi momento dalle preferenze del pannello.`;
+      } else {
+        $('disiscrivi-titolo').textContent = 'Link non valido';
+        $('disiscrivi-testo').textContent = 'Il link di disiscrizione non è valido o è incompleto. Puoi disattivare le email dalle preferenze del pannello, dopo l\u2019accesso.';
+      }
+    })();
+    return;
+  }
+  if (location.hash === '#preferenze') vaiAPreferenze = true;
+
   // Errori restituiti dai link email (es. link scaduto o già usato)
   const hash = new URLSearchParams(location.hash.slice(1));
   const erroreLink = hash.get('error_description') || hash.get('error');
