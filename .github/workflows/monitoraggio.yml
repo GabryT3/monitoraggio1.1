@@ -14,9 +14,14 @@ on:
   workflow_dispatch:
     inputs:
       prova:
-        description: "Modalità prova: mostra cosa verrebbe raccolto, senza scrivere nel database"
+        description: "Modalità prova: mostra cosa verrebbe raccolto, senza scrivere nel database né inviare email"
         type: boolean
         default: false
+      email_prova:
+        description: "Email di prova: indirizzo a cui inviare SOLO un'email di esempio (le imprese non ricevono nulla)"
+        type: string
+        required: false
+        default: ""
 
 permissions:
   contents: read
@@ -54,6 +59,14 @@ jobs:
           SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
           PROVA: ${{ inputs.prova && '1' || '' }}
           SOLO_NUOVE: ${{ github.event.schedule == '15 * * * *' && '1' || '' }}
+          # posta in uscita per le email con le novità (es. Gmail: smtp.gmail.com, porta 465, password per le app)
+          SMTP_HOST: ${{ secrets.SMTP_HOST }}
+          SMTP_PORT: ${{ secrets.SMTP_PORT }}
+          SMTP_USER: ${{ secrets.SMTP_USER }}
+          SMTP_PASSWORD: ${{ secrets.SMTP_PASSWORD }}
+          SMTP_FROM: ${{ secrets.SMTP_FROM }}
+          SITE_URL: ${{ secrets.SITE_URL }}
+          EMAIL_PROVA: ${{ inputs.email_prova }}
         run: |
           if [ -f monitor/monitor.py ]; then
             python monitor/monitor.py
